@@ -1,0 +1,39 @@
+type User @table {
+  email: String!
+  displayName: String!
+  role: String!
+  department: Department
+}
+
+type Grievance @table {
+  title: String!
+  description: String!
+  status: String!
+  createdAt: Timestamp!
+  updatedAt: Timestamp!
+  attachmentUrl: String
+  submitter: User!
+  assignedTo: User
+  assignedToDepartment: Department
+}
+
+type Comment @table {
+  content: String!
+  isInternal: Boolean!
+  createdAt: Timestamp!
+  user: User!
+  grievance: Grievance!
+}
+
+type Department @table {
+  name: String!
+  description: String
+}
+
+type GrievanceLog @table {
+  action: String!
+  details: String!
+  createdAt: Timestamp!
+  grievance: Grievance!
+  actor: User!
+}
