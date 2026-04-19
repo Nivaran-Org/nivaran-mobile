@@ -1,36 +1,125 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, withDelay, runOnJS } from 'react-native-reanimated';
-import { useRouter } from 'expo-router';
+import React, { useState, useRef } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
+import { useAuth } from '../contexts/AuthContext';
+import { router } from 'expo-router';
+import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
+import { firebaseConfig } from '../firebaseConfig';
 
-export default function SplashScreen() {
-  const router = useRouter();
-  const opacity = useSharedValue(0);
-  const scale = useSharedValue(0.5);
+export default function LoginScreen() {
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [isCodeSent, setIsCodeSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { signIn, verificationId } = useAuth();
+  const recaptchaVerifier = useRef<any>(null);
 
-  useEffect(() => {
-    // Animation: Fade in and Scale up
-    opacity.value = withTiming(1, { duration: 1000 });
-    scale.value = withTiming(1, { duration: 1000 });
+  const handleSendCode = async () => {
+    if (!phoneNumber || phoneNumber.length < 10) {
+      Alert.alert('Error', 'Please enter a valid phone number');
+      return;
+    }
+    setLoading(true);
+    try {
+      await signIn(`+91${phoneNumber}`, undefined, recaptchaVerifier.current);
+      setIsCodeSent(true);
+    } catch (error: any) {
+      console.error('Send OTP error:', error);
+      Alert.alert('Error', 'Failed to send OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const timeout = setTimeout(() => {
-      router.replace('/tab1');
-    }, 2500);
-
-    return () => clearTimeout(timeout);
-  }, []);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ scale: scale.value }],
-  }));
+  const handleVerifyCode = async () => {
+    if (!verificationCode || verificationCode.length < 6) {
+      Alert.alert('Error', 'Please enter the 6-digit code');
+      return;
+    }
+    setLoading(true);
+    try {
+      await signIn(`+91${phoneNumber}`, verificationCode);
+      router.replace('/(tabs)/home');
+    } catch (error: any) {
+      console.error('Verify OTP error:', error);
+      Alert.alert('Error', 'Invalid verification code. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <Animated.View style={animatedStyle}>
+      {/* reCAPTCHA modal — invisible unless challenge is triggered */}
+      <FirebaseRecaptchaVerifierModal
+        ref={recaptchaVerifier}
+        firebaseConfig={firebaseConfig}
+        attemptInvisibleVerification={true}
+      />
+
+      <View style={styles.card}>
         <Text style={styles.title}>NIVARAN</Text>
-        <Text style={styles.subtitle}>Officer Redressal Portal</Text>
-      </Animated.View>
+        <Text style={styles.subtitle}>AI-Powered Civic Complaint Management</Text>
+
+        {!isCodeSent ? (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Phone Number (10 digits)"
+              keyboardType="phone-pad"
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              maxLength={10}
+            />
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleSendCode}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Send OTP</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={styles.infoText}>
+              We've sent a 6-digit code to +91{phoneNumber}
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter OTP"
+              keyboardType="number-pad"
+              value={verificationCode}
+              onChangeText={setVerificationCode}
+              maxLength={6}
+            />
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleVerifyCode}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Verify OTP</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleSendCode}>
+              <Text style={styles.resendText}>Resend OTP</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
     </View>
   );
 }
@@ -38,21 +127,64 @@ export default function SplashScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1A1A1A', // Dark professional theme
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    padding: 20,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   title: {
-    fontSize: 48,
-    fontWeight: '900',
-    color: '#4D96FF',
-    letterSpacing: 8,
+    fontSize: 28,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+    color: '#007AFF',
   },
   subtitle: {
-    fontSize: 14,
-    color: '#888',
+    fontSize: 16,
     textAlign: 'center',
-    marginTop: 10,
-    letterSpacing: 2,
+    color: '#666',
+    marginBottom: 32,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  button: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  infoText: {
+    textAlign: 'center',
+    marginBottom: 16,
+    color: '#666',
+  },
+  resendText: {
+    textAlign: 'center',
+    color: '#007AFF',
+    marginTop: 16,
   },
 });

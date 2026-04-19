@@ -1,36 +1,44 @@
 import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Home, FileText, User } from 'lucide-react-native';
+import { useAuth } from '../../contexts/AuthContext';
+import { Redirect } from 'expo-router';
 
 export default function TabLayout() {
+  const { user } = useAuth();
+
+  if (!user) {
+    return <Redirect href="/" />;
+  }
+
   return (
-    <Tabs screenOptions={{ 
-      tabBarActiveTintColor: '#1E3A8A',
-      headerShown: false 
-    }}>
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: '#007AFF',
+        tabBarInactiveTintColor: '#8E8E93',
+        headerShown: true,
+      }}
+    >
       <Tabs.Screen
-        name="index"
+        name="home"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <Ionicons name="home" size={24} color={color} />,
+          title: 'Dashboard',
+          tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="tab1"
+        name="report"
         options={{
-          title: 'Complaints',
-          tabBarIcon: ({ color }) => <Ionicons name="list" size={24} color={color} />,
+          title: 'Report Issue',
+          tabBarIcon: ({ color, size }) => <FileText size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="profile"
         options={{
-          title: 'Stats',
-          tabBarIcon: ({ color }) => <Ionicons name="stats-chart" size={24} color={color} />,
+          title: 'Profile',
+          tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
         }}
       />
-      {/* These hide unused files from the bottom bar so they don't crash */}
-      <Tabs.Screen name="tab2" options={{ href: null }} />
-      <Tabs.Screen name="tab3" options={{ href: null }} />
     </Tabs>
   );
 }

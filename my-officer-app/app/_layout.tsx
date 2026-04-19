@@ -1,18 +1,13 @@
 import { Stack } from 'expo-router';
+import { AuthProvider } from '../contexts/AuthContext';
 
-export default function RootLayout() {
+export default function Layout() {
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(tabs)" />
-      {/* Explicitly defining the dynamic route path */}
-      <Stack.Screen 
-        name="details/[id]" 
-        options={{ 
-          headerShown: true, 
-          title: 'Investigation',
-          headerTitleStyle: { fontWeight: '900', color: '#1E3A8A' }
-        }} 
-      />
-    </Stack>
+    <AuthProvider>
+      <Stack>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      </Stack>
+    </AuthProvider>
   );
 }
