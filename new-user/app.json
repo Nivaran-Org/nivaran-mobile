@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "NIVARAN",
+    "slug": "nivaran",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.nivaran"
+    },
+    "android": {
+      
+      "package": "com.yourcompany.nivaran"
+    },
+    "web": {
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow NIVARAN to access your camera to take photos of civic issues."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow NIVARAN to access your location to report civic issues accurately."
+        }
+      ]
+    ],
+    "scheme": "nivaran"
+  }
+}
