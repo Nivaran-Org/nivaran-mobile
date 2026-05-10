@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,31 +7,80 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Animated,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { router } from 'expo-router';
-import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
-import { firebaseConfig } from '../firebaseConfig';
+import { Shield, Phone, Lock, ArrowRight, Zap } from 'lucide-react-native';
+
+const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
   const [isCodeSent, setIsCodeSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { signIn, verificationId } = useAuth();
-  const recaptchaVerifier = useRef<any>(null);
+  const { signIn, verificationId, user, isLoading } = useAuth();
+  const { theme } = useTheme();
+
+  // Animations
+  const logoAnim = useRef(new Animated.Value(0)).current;
+  const cardAnim = useRef(new Animated.Value(50)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const blob1 = useRef(new Animated.Value(0)).current;
+  const blob2 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Entrance animations
+    Animated.parallel([
+      Animated.spring(logoAnim, { toValue: 1, friction: 4, useNativeDriver: true }),
+      Animated.timing(cardAnim, { toValue: 0, duration: 600, delay: 200, useNativeDriver: true }),
+      Animated.timing(cardOpacity, { toValue: 1, duration: 600, delay: 200, useNativeDriver: true }),
+    ]).start();
+
+    // Floating blob animations
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(blob1, { toValue: 1, duration: 3000, useNativeDriver: true }),
+        Animated.timing(blob1, { toValue: 0, duration: 3000, useNativeDriver: true }),
+      ])
+    ).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(blob2, { toValue: 1, duration: 4000, useNativeDriver: true }),
+        Animated.timing(blob2, { toValue: 0, duration: 4000, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+
+  useEffect(() => {
+    if (user && !isLoading) {
+      router.replace('/(tabs)/home');
+    }
+  }, [user, isLoading]);
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, { backgroundColor: '#1E40AF' }]}>
+        <ActivityIndicator size="large" color="#fff" />
+      </View>
+    );
+  }
 
   const handleSendCode = async () => {
     if (!phoneNumber || phoneNumber.length < 10) {
-      Alert.alert('Error', 'Please enter a valid phone number');
+      Alert.alert('Error', 'Please enter a valid 10-digit phone number');
       return;
     }
     setLoading(true);
     try {
-      await signIn(`+91${phoneNumber}`, undefined, recaptchaVerifier.current);
+      await signIn(phoneNumber);
       setIsCodeSent(true);
     } catch (error: any) {
-      console.error('Send OTP error:', error);
       Alert.alert('Error', 'Failed to send OTP. Please try again.');
     } finally {
       setLoading(false);
@@ -45,81 +94,202 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      await signIn(`+91${phoneNumber}`, verificationCode);
+      await signIn(phoneNumber, verificationCode);
       router.replace('/(tabs)/home');
     } catch (error: any) {
-      console.error('Verify OTP error:', error);
       Alert.alert('Error', 'Invalid verification code. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleDemoLogin = async () => {
+    setLoading(true);
+    setPhoneNumber('9876543210');
+    try {
+      await signIn('9876543210');
+      await signIn('9876543210', '123456');
+      router.replace('/(tabs)/home');
+    } catch (error) {
+      Alert.alert('Error', 'Demo login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const blob1Translate = blob1.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 20],
+  });
+  const blob2Translate = blob2.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -15],
+  });
+
   return (
     <View style={styles.container}>
-      {/* reCAPTCHA modal — invisible unless challenge is triggered */}
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaVerifier}
-        firebaseConfig={firebaseConfig}
-        attemptInvisibleVerification={true}
+      {/* Background gradient */}
+      <View style={styles.bgGradient} />
+      <View style={styles.bgGradient2} />
+
+      {/* Floating blobs */}
+      <Animated.View
+        style={[
+          styles.blob,
+          styles.blob1,
+          { transform: [{ translateY: blob1Translate }] },
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.blob,
+          styles.blob2,
+          { transform: [{ translateY: blob2Translate }] },
+        ]}
       />
 
-      <View style={styles.card}>
-        <Text style={styles.title}>NIVARAN</Text>
-        <Text style={styles.subtitle}>AI-Powered Civic Complaint Management</Text>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
+      >
+        {/* Logo */}
+        <Animated.View
+          style={[
+            styles.logoContainer,
+            {
+              transform: [{ scale: logoAnim }],
+              opacity: logoAnim,
+            },
+          ]}
+        >
+          <View style={styles.logoIcon}>
+            <Shield size={36} color="#fff" />
+          </View>
+          <Text style={styles.title}>NIVARAN</Text>
+          <Text style={styles.subtitle}>AI-Powered Civic Complaint Management</Text>
+        </Animated.View>
 
-        {!isCodeSent ? (
-          <>
-            <TextInput
-              style={styles.input}
-              placeholder="Phone Number (10 digits)"
-              keyboardType="phone-pad"
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
-              maxLength={10}
-            />
-            <TouchableOpacity
-              style={styles.button}
-              onPress={handleSendCode}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Send OTP</Text>
-              )}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <Text style={styles.infoText}>
-              We've sent a 6-digit code to +91{phoneNumber}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter OTP"
-              keyboardType="number-pad"
-              value={verificationCode}
-              onChangeText={setVerificationCode}
-              maxLength={6}
-            />
-            <TouchableOpacity
-              style={styles.button}
-              onPress={handleVerifyCode}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Verify OTP</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleSendCode}>
-              <Text style={styles.resendText}>Resend OTP</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+        {/* Card */}
+        <Animated.View
+          style={[
+            styles.card,
+            {
+              transform: [{ translateY: cardAnim }],
+              opacity: cardOpacity,
+            },
+          ]}
+        >
+          {!isCodeSent ? (
+            <>
+              <Text style={styles.cardTitle}>Welcome, Citizen</Text>
+              <Text style={styles.cardSubtitle}>Enter your phone number to continue</Text>
+
+              <View style={styles.inputContainer}>
+                <View style={styles.prefixContainer}>
+                  <Text style={styles.prefix}>🇮🇳 +91</Text>
+                </View>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Phone Number"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="phone-pad"
+                  value={phoneNumber}
+                  onChangeText={setPhoneNumber}
+                  maxLength={10}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleSendCode}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <View style={styles.buttonContent}>
+                    <Text style={styles.buttonText}>Send OTP</Text>
+                    <ArrowRight size={20} color="#fff" />
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <TouchableOpacity
+                style={styles.demoButton}
+                onPress={handleDemoLogin}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <Zap size={18} color="#2563EB" />
+                <Text style={styles.demoButtonText}>Quick Demo Login</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.cardTitle}>Verify OTP</Text>
+              <Text style={styles.cardSubtitle}>
+                Enter the 6-digit code sent to +91 {phoneNumber}
+              </Text>
+              <Text style={styles.demoHint}>
+                💡 Demo mode: Enter any 6 digits
+              </Text>
+
+              <View style={styles.inputContainer}>
+                <View style={styles.prefixContainer}>
+                  <Lock size={18} color="#64748B" />
+                </View>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter OTP"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="number-pad"
+                  value={verificationCode}
+                  onChangeText={setVerificationCode}
+                  maxLength={6}
+                  autoFocus
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleVerifyCode}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <View style={styles.buttonContent}>
+                    <Text style={styles.buttonText}>Verify & Login</Text>
+                    <ArrowRight size={20} color="#fff" />
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.resendButton}
+                onPress={() => {
+                  setIsCodeSent(false);
+                  setVerificationCode('');
+                }}
+              >
+                <Text style={styles.resendText}>← Change number</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </Animated.View>
+
+        <Text style={styles.footerText}>
+          Empowering citizens for a better tomorrow
+        </Text>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -127,64 +297,211 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#1E40AF',
+  },
+  bgGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: height * 0.55,
+    backgroundColor: '#2563EB',
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
+  },
+  bgGradient2: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: height * 0.35,
+    backgroundColor: '#1D4ED8',
+    borderBottomLeftRadius: 60,
+    borderBottomRightRadius: 60,
+  },
+  blob: {
+    position: 'absolute',
+    borderRadius: 100,
+    opacity: 0.15,
+  },
+  blob1: {
+    width: 200,
+    height: 200,
+    backgroundColor: '#60A5FA',
+    top: -50,
+    right: -60,
+  },
+  blob2: {
+    width: 150,
+    height: 150,
+    backgroundColor: '#93C5FD',
+    top: height * 0.3,
+    left: -40,
+  },
+  keyboardView: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    padding: 20,
+    paddingHorizontal: 24,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  logoIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 3,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 8,
+    textAlign: 'center',
   },
   card: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 28,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 8,
-    color: '#007AFF',
+  cardTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 6,
   },
-  subtitle: {
-    fontSize: 16,
+  cardSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  demoHint: {
+    fontSize: 13,
+    color: '#2563EB',
+    backgroundColor: '#DBEAFE',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
     textAlign: 'center',
-    color: '#666',
-    marginBottom: 32,
+    overflow: 'hidden',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  prefixContainer: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: '#F1F5F9',
+    borderRightWidth: 1,
+    borderRightColor: '#E2E8F0',
+  },
+  prefix: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#475569',
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     fontSize: 16,
-    marginBottom: 16,
+    color: '#0F172A',
+    fontWeight: '500',
   },
   button: {
-    backgroundColor: '#007AFF',
-    borderRadius: 8,
-    padding: 14,
+    backgroundColor: '#2563EB',
+    borderRadius: 14,
+    paddingVertical: 15,
     alignItems: 'center',
-    marginTop: 8,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   buttonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  infoText: {
-    textAlign: 'center',
-    marginBottom: 16,
-    color: '#666',
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E2E8F0',
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 13,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  demoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#DBEAFE',
+    backgroundColor: '#F0F7FF',
+  },
+  demoButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  resendButton: {
+    marginTop: 16,
+    alignItems: 'center',
   },
   resendText: {
+    color: '#2563EB',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  footerText: {
+    marginTop: 32,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
     textAlign: 'center',
-    color: '#007AFF',
-    marginTop: 16,
   },
 });
