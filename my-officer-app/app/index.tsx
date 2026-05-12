@@ -1,61 +1,180 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, TextInput, Alert } from 'react-native';
-import { useAuth } from '../contexts/AuthContext'; // <--- Critical: ../ goes from app -> root
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
+import { useAuth } from '../contexts/AuthContext';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 
 export default function LoginScreen() {
-  const { signInUser } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [isCodeSent, setIsCodeSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { signIn } = useAuth();
 
-  const handleLogin = () => {
-    const success = signInUser(email, password);
-    if (success) {
+  const handleSendCode = async () => {
+    if (!phoneNumber || phoneNumber.length < 10) {
+      Alert.alert('Error', 'Please enter a valid phone number');
+      return;
+    }
+    setLoading(true);
+    try {
+      await signIn(`+91${phoneNumber}`);
+      setIsCodeSent(true);
+    } catch (error: any) {
+      console.error('Send OTP error:', error);
+      Alert.alert('Error', 'Failed to send OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (!verificationCode || verificationCode.length < 6) {
+      Alert.alert('Error', 'Please enter the 6-digit code');
+      return;
+    }
+    setLoading(true);
+    try {
+      await signIn(`+91${phoneNumber}`, verificationCode);
       router.replace('/(tabs)/home');
-    } else {
-      Alert.alert('Login Failed', 'Invalid credentials. Use officer@nivaran.gov.in / 1234');
+    } catch (error: any) {
+      console.error('Verify OTP error:', error);
+      Alert.alert('Error', 'Invalid verification code. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Ionicons name="shield-checkmark" size={60} color="#FFD700" />
-        <Text style={styles.title}>NIVARAN OFFICER</Text>
-      </View>
+      <View style={styles.card}>
+        <Text style={styles.title}>NIVARAN</Text>
+        <Text style={styles.subtitle}>AI-Powered Civic Complaint Management</Text>
 
-      <View style={styles.form}>
-        <TextInput 
-          style={styles.input} 
-          placeholder="Email or Badge ID" 
-          placeholderTextColor="#607D8B"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-        />
-        <TextInput 
-          style={styles.input} 
-          placeholder="Password" 
-          placeholderTextColor="#607D8B"
-          secureTextEntry 
-          value={password}
-          onChangeText={setPassword}
-        />
-        <TouchableOpacity style={styles.button} onPress={handleLogin}>
-          <Text style={styles.buttonText}>Authorize Access</Text>
-        </TouchableOpacity>
+        {!isCodeSent ? (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Phone Number (10 digits)"
+              keyboardType="phone-pad"
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              maxLength={10}
+            />
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleSendCode}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Send OTP</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={styles.infoText}>
+              We have sent a 6-digit code to +91{phoneNumber}
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter OTP"
+              keyboardType="number-pad"
+              value={verificationCode}
+              onChangeText={setVerificationCode}
+              maxLength={6}
+            />
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleVerifyCode}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Verify OTP</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleSendCode}>
+              <Text style={styles.resendText}>Resend OTP</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A2342', justifyContent: 'center', padding: 30 },
-  header: { alignItems: 'center', marginBottom: 50 },
-  title: { color: 'white', fontSize: 24, fontWeight: '900', marginTop: 10, letterSpacing: 2 },
-  form: { gap: 15 },
-  input: { backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,215,0,0.3)', padding: 15, borderRadius: 12, color: 'white' },
-  button: { backgroundColor: '#FFD700', padding: 18, borderRadius: 12, alignItems: 'center', marginTop: 10 },
-  buttonText: { color: '#0A2342', fontWeight: '800', fontSize: 16 }
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    padding: 20,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+    color: '#007AFF',
+  },
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#666',
+    marginBottom: 32,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  button: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  infoText: {
+    textAlign: 'center',
+    marginBottom: 16,
+    color: '#666',
+  },
+  resendText: {
+    textAlign: 'center',
+    color: '#007AFF',
+    marginTop: 16,
+  },
 });

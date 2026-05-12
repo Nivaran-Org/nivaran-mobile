@@ -38,8 +38,7 @@
             "backgroundColor": "#000000"
           }
         }
-      ],
-        ["expo-camera", { "cameraPermission": "NIVARAN requires camera for face authentication." }]
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

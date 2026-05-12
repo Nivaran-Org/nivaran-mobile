@@ -55,4 +55,3 @@ export const getDistrictCases = (district: string) => [
     submittedBy: "Anita Singh"
   }
 ];
-export default {};
