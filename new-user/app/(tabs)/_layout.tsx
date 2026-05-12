@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect, router } from 'expo-router';
 import { Home, FileText, User, Bell } from 'lucide-react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { Redirect } from 'expo-router';
 import { DemoStorage } from '../../services/DemoStorage';
 
 export default function TabLayout() {
@@ -18,13 +17,20 @@ export default function TabLayout() {
     return () => clearInterval(interval);
   }, []);
 
+  // ✅ Reactively redirect when user logs out
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace('/login');
+    }
+  }, [user, isLoading]);
+
   const loadUnread = async () => {
     const notifications = await DemoStorage.getNotifications();
     setUnreadCount(notifications.filter(n => !n.read).length);
   };
 
   if (isLoading) return null;
-  if (!user) return <Redirect href="/" />;
+  if (!user) return null; // useEffect above handles redirect
 
   return (
     <Tabs

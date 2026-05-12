@@ -1,32 +1,18 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from '../contexts/AuthContext';
-import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
-
-function AppContent() {
-  const { isDark } = useTheme();
-
-  return (
-    <>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: 'slide_from_right',
-        }}
-      >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      </Stack>
-    </>
-  );
-}
+import { ThemeProvider } from '../contexts/ThemeContext';
 
 export default function Layout() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AppContent />
+        <StatusBar style="light" />
+        <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="login" />       {/* ✅ new */}
+          <Stack.Screen name="(tabs)" />
+        </Stack>
       </AuthProvider>
     </ThemeProvider>
   );
