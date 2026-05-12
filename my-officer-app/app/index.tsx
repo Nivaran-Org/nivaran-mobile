@@ -9,14 +9,14 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleLogin = () => {
-    const success = signInUser(email, password);
-    if (success) {
-      router.replace('/(tabs)/home');
-    } else {
-      Alert.alert('Login Failed', 'Invalid credentials. Use officer@nivaran.gov.in / 1234');
-    }
-  };
+  const handleLogin = async () => {
+  const success = await signInUser(email, password);
+  if (success) {
+    router.replace('/(tabs)/home');
+  } else {
+    Alert.alert('Login Failed', 'Invalid credentials or not an officer account');
+  }
+};
 
   return (
     <View style={styles.container}>

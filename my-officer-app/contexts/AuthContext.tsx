@@ -1,72 +1,61 @@
-// contexts/AuthContext.tsx
 import React, { createContext, useContext, useState, ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export interface Officer {
-  id: string;
-  badgeId: string;
+const BASE_URL = 'http://192.168.18.7:5000';
+
+interface User {
+  id: number;
+  name: string;
   email: string;
-  displayName: string;
-  department: string;
-  zone: string;
-  role: 'officer' | 'admin';
+  role: string;
+  displayName?: string;
+  department?: string;
+  zone?: string;
 }
 
 interface AuthContextType {
-  user: Officer | null;
-  signInUser: (emailOrBadge: string, password: string) => boolean;
+  user: User | null;
+  signInUser: (email: string, password: string) => Promise<boolean>;
   signOut: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// ── Demo officer accounts ──────────────────────────────────────────────────────
-const DEMO_OFFICERS: (Officer & { password: string; email: string; badgeId: string })[] = [
-  {
-    id: 'u1',
-    badgeId: 'OFF-001',
-    email: 'officer@nivaran.gov.in',
-    password: '1234',
-    displayName: 'Inspector Harpreet Kaur',
-    department: 'Public Works',
-    zone: 'Zone A – Central',
-    role: 'officer',
-  },
-  {
-    id: 'u2',
-    badgeId: 'OFF-002',
-    email: 'admin@nivaran.gov.in',
-    password: '1234',
-    displayName: 'Superintendent Gurjeet Singh',
-    department: 'Administration',
-    zone: 'All Zones',
-    role: 'admin',
-  },
-];
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<Officer | null>(null);
+  const [user, setUser] = useState<User | null>(null);
 
-  /**
-   * Accepts either:
-   *  - email + password  (my-officer-app index.tsx login form)
-   *  - badgeId + password  (original app/index.tsx biometric flow)
-   */
-  const signInUser = (emailOrBadge: string, password: string): boolean => {
-    const found = DEMO_OFFICERS.find(
-      (o) =>
-        (o.email.toLowerCase() === emailOrBadge.toLowerCase() ||
-          o.badgeId.toLowerCase() === emailOrBadge.toLowerCase()) &&
-        o.password === password,
-    );
-    if (found) {
-      const { password: _pw, ...officer } = found;
-      setUser(officer);
-      return true;
+  const signInUser = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+
+      if (data.success && data.user.role === 'officer') {
+        await AsyncStorage.setItem('token', data.token);
+        await AsyncStorage.setItem('user', JSON.stringify(data.user));
+        setUser({
+          ...data.user,
+          displayName: data.user.name,
+          department: 'Field Operations',
+          zone: 'Punjab Division',
+        });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Login failed:', err);
+      return false;
     }
-    return false;
   };
 
-  const signOut = () => setUser(null);
+  const signOut = async () => {
+    await AsyncStorage.removeItem('token');
+    await AsyncStorage.removeItem('user');
+    setUser(null);
+  };
 
   return (
     <AuthContext.Provider value={{ user, signInUser, signOut }}>

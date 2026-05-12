@@ -1,7 +1,8 @@
-// contexts/ComplaintsContext.tsx
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+const BASE_URL = 'http://192.168.18.7:5000';
+
 export interface Location {
   latitude: number;
   longitude: number;
@@ -27,144 +28,91 @@ export interface Complaint {
 
 interface ComplaintsContextType {
   complaints: Complaint[];
-  updateComplaintStatus: (
-    id: string,
-    status: Complaint['status'],
-    note?: string,
-  ) => void;
+  loading: boolean;
+  updateComplaintStatus: (id: string, status: Complaint['status'], note?: string) => void;
   addComplaint: (complaint: Omit<Complaint, 'id' | 'createdAt'>) => void;
+  refresh: () => void;
 }
 
 const ComplaintsContext = createContext<ComplaintsContextType | undefined>(undefined);
 
-// ── Seed data ─────────────────────────────────────────────────────────────────
-const SEED: Complaint[] = [
-  {
-    id: 'CMP-0001',
-    title: 'Pothole on Main Market Road',
-    description:
-      'A large pothole near Gandhi Chowk has been causing accidents for two weeks. Immediate repair needed.',
-    status: 'pending',
-    priority: 'High',
-    citizenName: 'Ramesh Kumar',
-    citizenPhone: '98765-43210',
-    createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    aiRouting: 'Routed to Public Works Department – Road Maintenance Cell',
-    location: { latitude: 31.3260, longitude: 75.5762, address: 'Gandhi Chowk, Jalandhar' },
-    assignedTo: 'T1',
-  },
-  {
-    id: 'CMP-0002',
-    title: 'Street Light Not Working',
-    description:
-      'Three consecutive street lights on Model Town Link Road have been non-functional for 10 days, causing safety concerns at night.',
-    status: 'in-progress',
-    priority: 'Medium',
-    citizenName: 'Sunita Devi',
-    citizenPhone: '99001-12345',
-    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    officerNote: 'Electrician team deployed. Wiring fault identified.',
-    aiRouting: 'Routed to Municipal Electricity Wing',
-    location: { latitude: 31.3421, longitude: 75.5731, address: 'Model Town Link Road' },
-    assignedTo: 'T2',
-  },
-  {
-    id: 'CMP-0003',
-    title: 'Overflowing Sewage Near School',
-    description:
-      'Sewage is overflowing onto the footpath outside DAV Public School on Lajpat Nagar. Children are at health risk.',
-    status: 'pending',
-    priority: 'Critical',
-    citizenName: 'Harjinder Singh',
-    citizenPhone: '70099-88776',
-    createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-    aiRouting: 'Routed to Sewage & Sanitation Department – Emergency Cell',
-    location: { latitude: 31.3351, longitude: 75.5788, address: 'Lajpat Nagar, near DAV School' },
-  },
-  {
-    id: 'CMP-0004',
-    title: 'Water Supply Disruption',
-    description:
-      'No water supply in Sector 7 for the past 3 days. Residents are forced to buy water from tankers.',
-    status: 'resolved',
-    priority: 'High',
-    citizenName: 'Manpreet Kaur',
-    citizenPhone: '85500-66789',
-    createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
-    officerNote: 'Main supply line repaired. Water restored to full pressure.',
-    aiRouting: 'Routed to Jal Supply Department',
-    location: { latitude: 31.3195, longitude: 75.5812, address: 'Sector 7, Jalandhar' },
-    assignedTo: 'T3',
-  },
-  {
-    id: 'CMP-0005',
-    title: 'Garbage Not Collected for a Week',
-    description:
-      'Garbage collection truck has not visited our street (Guru Nanak Colony) for 7 days. Waste is piling up.',
-    status: 'pending',
-    priority: 'Medium',
-    citizenName: 'Balvinder Pal',
-    citizenPhone: '98140-22334',
-    createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    aiRouting: 'Routed to Solid Waste Management Department',
-    location: { latitude: 31.3299, longitude: 75.5701, address: 'Guru Nanak Colony' },
-  },
-  {
-    id: 'CMP-0006',
-    title: 'Broken Footpath Tiles',
-    description:
-      'Footpath tiles in front of Civil Hospital are broken and pose a tripping hazard for patients and visitors.',
-    status: 'in-progress',
-    priority: 'Low',
-    citizenName: 'Anita Sharma',
-    citizenPhone: '93160-55412',
-    createdAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    officerNote: 'Work order issued. Tiles ordered from PWD store.',
-    aiRouting: 'Routed to Urban Development – Footpath Cell',
-    assignedTo: 'T4',
-  },
-];
+// Map backend complaint to Complaint interface
+const mapComplaint = (c: any): Complaint => ({
+  id: String(c.id),
+  title: c.title,
+  description: c.description,
+  status: c.status === 'in progress' ? 'in-progress' : c.status,
+  priority: c.priority === 'high' ? 'High' : c.priority === 'low' ? 'Low' : c.priority === 'critical' ? 'Critical' : 'Medium',
+  citizenName: c.user_name || 'Citizen',
+  citizenPhone: c.user_phone || 'N/A',
+  createdAt: c.created_at,
+  updatedAt: c.updated_at,
+  aiRouting: c.department ? `Routed to ${c.department} (${(c.ai_confidence * 100).toFixed(1)}% confidence)` : undefined,
+  location: c.latitude && c.longitude ? { latitude: parseFloat(c.latitude), longitude: parseFloat(c.longitude) } : undefined,
+  assignedTo: c.assigned_to ? String(c.assigned_to) : undefined,
+});
 
-// ── Provider ──────────────────────────────────────────────────────────────────
 export function ComplaintsProvider({ children }: { children: ReactNode }) {
-  const [complaints, setComplaints] = useState<Complaint[]>(SEED);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const updateComplaintStatus = (
-    id: string,
-    status: Complaint['status'],
-    note?: string,
-  ) => {
-    setComplaints((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              status,
-              updatedAt: new Date().toISOString(),
-              ...(note ? { officerNote: note } : {}),
-            }
-          : c,
-      ),
-    );
+  const fetchComplaints = async () => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (!token) return;
+
+      const res = await fetch(`${BASE_URL}/api/complaints/officer/assigned`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setComplaints(data.data.map(mapComplaint));
+      }
+    } catch (err) {
+      console.error('Failed to fetch complaints:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchComplaints();
+  }, []);
+
+  const updateComplaintStatus = async (id: string, status: Complaint['status'], note?: string) => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const backendStatus = status === 'in-progress' ? 'in progress' : status;
+
+      await fetch(`${BASE_URL}/api/complaints/officer/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: backendStatus }),
+      });
+
+      // Optimistic update
+      setComplaints((prev) =>
+        prev.map((c) =>
+          c.id === id
+            ? { ...c, status, updatedAt: new Date().toISOString(), ...(note ? { officerNote: note } : {}) }
+            : c,
+        ),
+      );
+    } catch (err) {
+      console.error('Failed to update status:', err);
+    }
   };
 
   const addComplaint = (complaint: Omit<Complaint, 'id' | 'createdAt'>) => {
     const newId = `CMP-${String(complaints.length + 1).padStart(4, '0')}`;
-    setComplaints((prev) => [
-      {
-        ...complaint,
-        id: newId,
-        createdAt: new Date().toISOString(),
-      },
-      ...prev,
-    ]);
+    setComplaints((prev) => [{ ...complaint, id: newId, createdAt: new Date().toISOString() }, ...prev]);
   };
 
   return (
-    <ComplaintsContext.Provider value={{ complaints, updateComplaintStatus, addComplaint }}>
+    <ComplaintsContext.Provider value={{ complaints, loading, updateComplaintStatus, addComplaint, refresh: fetchComplaints }}>
       {children}
     </ComplaintsContext.Provider>
   );
