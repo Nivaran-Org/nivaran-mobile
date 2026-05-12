@@ -1,27 +1,61 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, Text, StyleSheet, ScrollView, TouchableOpacity, 
-  TextInput, SafeAreaView, StatusBar 
+  TextInput, SafeAreaView, StatusBar, ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ActionSquare } from '../../components/ActionSquare'; 
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// 1. IMPORT DATA FROM RESOLVED CASES
-import { RESOLVED_DATA } from '../screens/resolved-cases';
+const BASE_URL = 'http://192.168.18.7:5000';
 
 export default function AdminHome() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [adminName, setAdminName] = useState('Admin');
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // 2. DYNAMIC COUNT CALCULATION
-  const totalResolvedCount = RESOLVED_DATA ? RESOLVED_DATA.length : 0;
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const user = await AsyncStorage.getItem('user');
+      if (user) setAdminName(JSON.parse(user).name);
+
+      const token = await AsyncStorage.getItem('token');
+      const res = await fetch(`${BASE_URL}/api/complaints`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) setComplaints(data.data);
+    } catch (err) {
+      console.error('Failed to load:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Real counts from backend
+  const newCases      = complaints.filter(c => c.status === 'pending' && !c.assigned_to).length;
+  const overdue       = complaints.filter(c => c.status === 'pending' && c.assigned_to).length;
+  const resolved      = complaints.filter(c => c.status === 'resolved').length;
+  const inProgress    = complaints.filter(c => c.status === 'in progress').length;
+
+  // Filter by search
+  const filtered = complaints.filter(c =>
+    c.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.department?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.id?.toString().includes(searchQuery)
+  );
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* METALLIC BLUE HEADER */}
       <View style={styles.metallicHeader}>
         <SafeAreaView>
           <View style={styles.headerTopRow}>
@@ -32,10 +66,9 @@ export default function AdminHome() {
                 <Text style={styles.pulseText}>Live System</Text>
               </View>
             </View>
-
             <TouchableOpacity style={styles.adminProfileBar}>
               <View style={styles.adminInfoText}>
-                <Text style={styles.adminName}>H. Singh</Text>
+                <Text style={styles.adminName}>{adminName}</Text>
                 <Text style={styles.adminRole}>Super Admin</Text>
               </View>
               <View style={styles.profileIconCircle}>
@@ -48,13 +81,13 @@ export default function AdminHome() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
         
-        {/* SEARCH BAR */}
+        {/* SEARCH */}
         <View style={styles.searchSection}>
           <Text style={styles.sectionLabel}>Track Complaint</Text>
           <View style={styles.searchBar}>
             <Ionicons name="search" size={20} color="#94A3B8" />
             <TextInput 
-              placeholder="Search ID, Officer, or City..." 
+              placeholder="Search ID, Department, or Title..." 
               style={styles.searchInput}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -62,61 +95,71 @@ export default function AdminHome() {
           </View>
         </View>
 
-        {/* 4 ACTION SQUARES */}
-        <Text style={styles.sectionLabel}>Priority Monitor</Text>
-        <View style={styles.actionGrid}>
-          <ActionSquare 
-            label="New Cases" 
-            count="12" 
-            icon="mail-unread" 
-            color="#3B82F6" 
-            bgColor="#EFF6FF" 
-            onPress={() => router.push('/screens/new-cases')} 
-          />
-          <ActionSquare 
-            label="Overdue" 
-            count="05" 
-            icon="alert-circle" 
-            color="#EF4444" 
-            bgColor="#FEF2F2" 
-            isLate={true} 
-            onPress={() => router.push('/screens/overdue')} 
-          />
-          <ActionSquare 
-            label="Staff Online" 
-            count="24" 
-            icon="people" 
-            color="#22C55E" 
-            bgColor="#F0FDF4" 
-            onPress={() => router.push('/screens/staff-online')} 
-          />
-          
-          {/* 3. DYNAMICALLY UPDATED RESOLVED SQUARE */}
-          <ActionSquare 
-            label="Resolved" 
-            count={totalResolvedCount.toString()} 
-            icon="checkmark-done-circle" 
-            color="#8B5CF6" 
-            bgColor="#F5F3FF" 
-            onPress={() => router.push('/screens/resolved-cases')} 
-          />
-        </View>
-
-        {/* SYSTEM LOG */}
-        <View style={styles.activityBox}>
-            <Text style={styles.sectionLabel}>System Log</Text>
-            <View style={styles.logItem}>
-               <Ionicons name="radio-button-on" size={12} color="#22C55E" />
-               <Text style={styles.logText}>
-                 Successfully archived <Text style={{fontWeight:'bold'}}>{totalResolvedCount}</Text> cases
-               </Text>
+        {loading ? (
+          <ActivityIndicator size="large" color="#1E3A8A" style={{ marginTop: 40 }} />
+        ) : (
+          <>
+            {/* ACTION SQUARES */}
+            <Text style={styles.sectionLabel}>Priority Monitor</Text>
+            <View style={styles.actionGrid}>
+              <ActionSquare 
+                label="New Cases" 
+                count={newCases.toString()} 
+                icon="mail-unread" 
+                color="#3B82F6" 
+                bgColor="#EFF6FF" 
+                onPress={() => router.push('/screens/new-cases')} 
+              />
+              <ActionSquare 
+                label="Assigned" 
+                count={overdue.toString()} 
+                icon="alert-circle" 
+                color="#EF4444" 
+                bgColor="#FEF2F2" 
+                onPress={() => router.push('/screens/overdue')} 
+              />
+              <ActionSquare 
+                label="In Progress" 
+                count={inProgress.toString()} 
+                icon="people" 
+                color="#22C55E" 
+                bgColor="#F0FDF4" 
+                onPress={() => router.push('/screens/staff-online')} 
+              />
+              <ActionSquare 
+                label="Resolved" 
+                count={resolved.toString()} 
+                icon="checkmark-done-circle" 
+                color="#8B5CF6" 
+                bgColor="#F5F3FF" 
+                onPress={() => router.push('/screens/resolved-cases')} 
+              />
             </View>
-            <View style={styles.logItem}>
-               <Ionicons name="radio-button-on" size={12} color="#22C55E" />
-               <Text style={styles.logText}>New grievance filed in <Text style={{fontWeight:'bold'}}>Jalandhar</Text></Text>
-            </View>
-        </View>
 
+            {/* RECENT COMPLAINTS */}
+            <View style={styles.activityBox}>
+              <Text style={styles.sectionLabel}>Recent Complaints</Text>
+              {filtered.slice(0, 5).map((c, i) => (
+                <View key={i} style={styles.logItem}>
+                  <Ionicons 
+                    name="radio-button-on" 
+                    size={12} 
+                    color={c.status === 'resolved' ? '#22C55E' : '#F97316'} 
+                  />
+                  <Text style={styles.logText}>
+                    <Text style={{ fontWeight: 'bold' }}>#{c.id}</Text> — {c.title} →{' '}
+                    <Text style={{ fontWeight: 'bold' }}>{c.department}</Text>
+                  </Text>
+                </View>
+              ))}
+              {filtered.length === 0 && (
+                <Text style={{ color: '#94A3B8', textAlign: 'center', marginTop: 10 }}>
+                  No complaints found
+                </Text>
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -143,11 +186,11 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 11, fontWeight: '900', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 15 },
   searchBar: { 
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 20, 
-    paddingHorizontal: 15, height: 55, elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5
+    paddingHorizontal: 15, height: 55, elevation: 3
   },
   searchInput: { flex: 1, marginLeft: 12, fontSize: 14, fontWeight: '600', color: '#1E293B' },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   activityBox: { marginTop: 10, backgroundColor: '#FFF', padding: 20, borderRadius: 25, elevation: 2 },
   logItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
-  logText: { fontSize: 13, color: '#475569' }
+  logText: { fontSize: 13, color: '#475569', flex: 1 }
 });
