@@ -1,13 +1,17 @@
 import { Stack } from 'expo-router';
+// Import both providers from your root contexts folder
 import { AuthProvider } from '../contexts/AuthContext';
+import { ComplaintsProvider } from '../contexts/ComplaintsContext';
 
-export default function Layout() {
+export default function RootLayout() {
   return (
     <AuthProvider>
-      <Stack>
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      </Stack>
+      <ComplaintsProvider> 
+        <Stack>
+          <Stack.Screen name="index" options={{ title: 'Login' }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        </Stack>
+      </ComplaintsProvider>
     </AuthProvider>
   );
 }
