@@ -72,24 +72,24 @@ export default function LoginScreen() {
   }
 
   const handleSendCode = async () => {
-    if (!phoneNumber || phoneNumber.length < 10) {
-      Alert.alert('Error', 'Please enter a valid 10-digit phone number');
+    if (!phoneNumber || !phoneNumber.includes('@')) {
+      Alert.alert('Error', 'Please enter a valid email address');
       return;
     }
     setLoading(true);
     try {
-      await signIn(phoneNumber);
+      await signIn(phoneNumber); // stores email, sets verificationId
       setIsCodeSent(true);
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to send OTP. Please try again.');
+      Alert.alert('Error', 'Something went wrong. Try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleVerifyCode = async () => {
-    if (!verificationCode || verificationCode.length < 6) {
-      Alert.alert('Error', 'Please enter the 6-digit code');
+    if (!verificationCode || verificationCode.length < 4) {
+      Alert.alert('Error', 'Please enter your password');
       return;
     }
     setLoading(true);
@@ -97,7 +97,7 @@ export default function LoginScreen() {
       await signIn(phoneNumber, verificationCode);
       router.replace('/(tabs)/home');
     } catch (error: any) {
-      Alert.alert('Error', 'Invalid verification code. Please try again.');
+      Alert.alert('Login Failed', error.message || 'Invalid credentials');
     } finally {
       setLoading(false);
     }
@@ -105,10 +105,10 @@ export default function LoginScreen() {
 
   const handleDemoLogin = async () => {
     setLoading(true);
-    setPhoneNumber('9876543210');
+    setPhoneNumber('nitin@test.com');
     try {
-      await signIn('9876543210');
-      await signIn('9876543210', '123456');
+      await signIn('nitin@test.com');
+      await signIn('nitin@test.com', 'test1234');
       router.replace('/(tabs)/home');
     } catch (error) {
       Alert.alert('Error', 'Demo login failed');
@@ -182,20 +182,20 @@ export default function LoginScreen() {
           {!isCodeSent ? (
             <>
               <Text style={styles.cardTitle}>Welcome, Citizen</Text>
-              <Text style={styles.cardSubtitle}>Enter your phone number to continue</Text>
+              <Text style={styles.cardSubtitle}>Enter your email address to continue</Text>
 
               <View style={styles.inputContainer}>
                 <View style={styles.prefixContainer}>
-                  <Text style={styles.prefix}>🇮🇳 +91</Text>
+                  <Text style={styles.prefix}>✉️</Text>
                 </View>
                 <TextInput
                   style={styles.input}
-                  placeholder="Phone Number"
+                  placeholder="Email Address"
                   placeholderTextColor="#94A3B8"
-                  keyboardType="phone-pad"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
                   value={phoneNumber}
                   onChangeText={setPhoneNumber}
-                  maxLength={10}
                 />
               </View>
 
@@ -209,7 +209,7 @@ export default function LoginScreen() {
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <View style={styles.buttonContent}>
-                    <Text style={styles.buttonText}>Send OTP</Text>
+                    <Text style={styles.buttonText}>Continue</Text>
                     <ArrowRight size={20} color="#fff" />
                   </View>
                 )}
@@ -233,12 +233,12 @@ export default function LoginScreen() {
             </>
           ) : (
             <>
-              <Text style={styles.cardTitle}>Verify OTP</Text>
+              <Text style={styles.cardTitle}>Enter Password</Text>
               <Text style={styles.cardSubtitle}>
-                Enter the 6-digit code sent to +91 {phoneNumber}
+                Enter your password for {phoneNumber}
               </Text>
               <Text style={styles.demoHint}>
-                💡 Demo mode: Enter any 6 digits
+                💡 Demo mode: use password <Text style={{ fontWeight: '700' }}>test1234</Text>
               </Text>
 
               <View style={styles.inputContainer}>
@@ -247,12 +247,11 @@ export default function LoginScreen() {
                 </View>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter OTP"
+                  placeholder="Password"
                   placeholderTextColor="#94A3B8"
-                  keyboardType="number-pad"
+                  secureTextEntry
                   value={verificationCode}
                   onChangeText={setVerificationCode}
-                  maxLength={6}
                   autoFocus
                 />
               </View>
@@ -267,7 +266,7 @@ export default function LoginScreen() {
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <View style={styles.buttonContent}>
-                    <Text style={styles.buttonText}>Verify & Login</Text>
+                    <Text style={styles.buttonText}>Login</Text>
                     <ArrowRight size={20} color="#fff" />
                   </View>
                 )}
@@ -280,7 +279,7 @@ export default function LoginScreen() {
                   setVerificationCode('');
                 }}
               >
-                <Text style={styles.resendText}>← Change number</Text>
+                <Text style={styles.resendText}>← Change email</Text>
               </TouchableOpacity>
             </>
           )}
