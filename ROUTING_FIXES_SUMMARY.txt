@@ -1,0 +1,32 @@
+`# ROUTING FIXES APPLIED TO my-admin APP
+
+## Issues Found:
+1. No _layout.tsx in app/screens/ folder - breaks routing for /screens/* routes
+2. No /profile route - profile navigation would fail
+3. Navigation buttons reference /screens/new-cases, /screens/overdue, /screens/staff-online, /screens/resolved-cases
+
+## Solutions Applied:
+
+### Fix 1: Created app/screens/_layout.tsx
+- Allows proper routing for all screen files
+- Uses Stack navigator with slide_from_right animation
+- Routes now accessible: /screens/new-cases, /screens/overdue, /screens/staff-online, /screens/resolved-cases, /screens/case-details, /screens/staff-history, /screens/resolved-cases
+
+### Fix 2: Created app/profile.tsx  
+- New standalone profile screen at app root level
+- Displays admin user information (name, email, role, department, phone)
+- Includes logout button functionality
+- Accessible via /profile route
+
+## Valid Routes After Fixes:
+? /screens/new-cases
+? /screens/overdue
+? /screens/staff-online
+? /screens/resolved-cases
+? /screens/case-details
+? /screens/staff-history
+? /profile
+? /details/[dept]
+? /grievance/[id]
+
+All navigation buttons in app/(tabs)/index.tsx should now work correctly!

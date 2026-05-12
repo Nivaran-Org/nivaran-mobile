@@ -1,180 +1,348 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  View, Text, StyleSheet, Image, TouchableOpacity, 
-  SafeAreaView, Animated, Dimensions, StatusBar, TextInput, ActivityIndicator, Alert
+/**
+ * FILE: app/index.tsx
+ *
+ * This is the ENTRY POINT of the app.
+ * It shows an animated splash screen (tricolor inspired, like the Swachhata ref),
+ * then automatically navigates to the main tabs layout.
+ *
+ * FOLDER STRUCTURE ASSUMED:
+ *   app/
+ *     index.tsx          ← THIS FILE (splash)
+ *     (tabs)/
+ *       _layout.tsx      ← Tab bar layout
+ *       index.tsx        ← Dashboard (home tab)
+ *       notifications.tsx
+ *       profile.tsx
+ *     screens/
+ *       new-cases.tsx
+ *       case-details.tsx
+ *       ...
+ */
+
+import React, { useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  Easing,
+  Platform,
+  StatusBar,
+  Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-export default function SwachhataFullAuth() {
+export default function SplashScreen() {
   const router = useRouter();
-  
-  // States
-  const [step, setStep] = useState<'home' | 'phone' | 'otp'>('home');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [otp, setOtp] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
-  // Animations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+  // ── Animation values ────────────────────────────────────────────────────────
+  const topStripeAnim   = useRef(new Animated.Value(-height * 0.35)).current; // saffron stripe slides in from top
+  const botStripeAnim   = useRef(new Animated.Value(height * 0.35)).current;  // green stripe slides in from bottom
+  const logoFade        = useRef(new Animated.Value(0)).current;
+  const logoScale       = useRef(new Animated.Value(0.5)).current;
+  const taglineFade     = useRef(new Animated.Value(0)).current;
+  const taglineSlide    = useRef(new Animated.Value(30)).current;
+  const ashokFade       = useRef(new Animated.Value(0)).current;
+  const ashokSpin       = useRef(new Animated.Value(0)).current;
+  const exitFade        = useRef(new Animated.Value(1)).current; // whole screen fades out
 
   useEffect(() => {
-    fadeAnim.setValue(0);
-    Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-  }, [step]);
+    StatusBar.setBarStyle('light-content');
 
-  const handlePhoneSubmit = () => {
-    if (phoneNumber.length < 10) {
-      setError('Enter a valid 10-digit number');
-      return;
-    }
-    setError('');
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      setStep('otp');
-    }, 800);
-  };
+    // ── Step 1: Tricolor stripes slide in ─────────────────────────────────
+    Animated.parallel([
+      Animated.timing(topStripeAnim, {
+        toValue: 0,
+        duration: 700,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+      Animated.timing(botStripeAnim, {
+        toValue: 0,
+        duration: 700,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+    ]).start(() => {
 
-  const handleVerifyOtp = () => {
-    if (otp === '123456') {
-      setError('');
-      setLoading(true);
+      // ── Step 2: Ashoka-style chakra fades + spins in ───────────────────
+      Animated.parallel([
+        Animated.timing(ashokFade, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+        Animated.timing(ashokSpin, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.out(Easing.back(1.2)),
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+      ]).start();
+
+      // ── Step 3: Logo pops in ───────────────────────────────────────────
+      Animated.parallel([
+        Animated.spring(logoScale, {
+          toValue: 1,
+          friction: 5,
+          tension: 80,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+        Animated.timing(logoFade, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+      ]).start();
+
+      // ── Step 4: Tagline slides up ──────────────────────────────────────
       setTimeout(() => {
-        setLoading(false);
-        router.replace('/(tabs)');
-      }, 1000);
-    } else {
-      setError('Wrong OTP. Please try again.');
-      setOtp('');
-    }
-  };
+        Animated.parallel([
+          Animated.timing(taglineFade, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+          Animated.timing(taglineSlide, {
+            toValue: 0,
+            duration: 600,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+        ]).start();
+      }, 400);
+
+      // ── Step 5: Full screen fades out → navigate ───────────────────────
+      setTimeout(() => {
+        Animated.timing(exitFade, {
+          toValue: 0,
+          duration: 600,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: Platform.OS !== 'web',
+        }).start(() => {
+          router.replace('/(tabs)');
+        });
+      }, 2800);
+    });
+  }, []);
+
+  const chakraSpin = ashokSpin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      
-      {/* ─── GOVT HEADER ─── */}
-      <View style={styles.header}>
-        <Image 
-          source={{ uri: 'https://seeklogo.com/images/S/swachh-bharat-mission-logo-7928236314-seeklogo.com.png' }} 
-          style={styles.logo} 
-          resizeMode="contain" 
-        />
-        <Text style={styles.sloganHindi}>एक कदम स्वच्छता की ओर</Text>
-      </View>
+    <Animated.View style={[styles.root, { opacity: exitFade }]}>
+      <StatusBar barStyle="light-content" backgroundColor="#1E3A8A" />
 
-      <Animated.View style={[styles.mainContent, { opacity: fadeAnim }]}>
-        
-        {step === 'home' ? (
-          <>
-            <Text style={styles.brandTitle}>NIVARAN</Text>
-            <Text style={styles.brandSub}>Official Admin Portal</Text>
+      {/* ── White middle background ── */}
+      <View style={styles.whiteMiddle} />
 
-            {/* 6 BUTTON GRID AS REQUESTED */}
-            <View style={styles.gridContainer}>
-              <View style={styles.row}>
-                <CategoryBox icon="🚻" label="Toilet" color="#22D3EE" onPress={() => setStep('phone')} />
-                <CategoryBox icon="🗑️" label="Trash" color="#10B981" onPress={() => setStep('phone')} />
-                <CategoryBox icon="📝" label="Complaint" color="#F97316" onPress={() => setStep('phone')} />
-              </View>
-              <View style={styles.row}>
-                <CategoryBox icon="🏗️" label="Dump" color="#F59E0B" onPress={() => setStep('phone')} />
-                <CategoryBox icon="💧" label="Sewerage" color="#3B82F6" onPress={() => setStep('phone')} />
-                <CategoryBox icon="🚛" label="Collection" color="#4ADE80" onPress={() => setStep('phone')} />
-              </View>
-            </View>
-          </>
-        ) : (
-          <View style={styles.authCard}>
-            <TouchableOpacity onPress={() => setStep('home')} style={styles.backBtn}>
-              <Text style={styles.backBtnText}>← Back to Home</Text>
-            </TouchableOpacity>
-            
-            <Text style={styles.authTitle}>{step === 'phone' ? 'Mobile Login' : 'Verify OTP'}</Text>
-            <Text style={styles.authSub}>
-              {step === 'phone' ? 'Enter registered mobile number' : `Enter code sent to +91 ${phoneNumber}`}
-            </Text>
+      {/* ── Saffron stripe (top) ── */}
+      <Animated.View
+        style={[styles.saffronStripe, { transform: [{ translateY: topStripeAnim }] }]}
+      />
 
-            {step === 'phone' ? (
-              <TextInput
-                style={styles.input}
-                placeholder="9876543210"
-                keyboardType="phone-pad"
-                maxLength={10}
-                value={phoneNumber}
-                onChangeText={(t) => {setPhoneNumber(t); setError('');}}
-              />
-            ) : (
-              <TextInput
-                style={styles.input}
-                placeholder="Enter OTP (123456)"
-                keyboardType="number-pad"
-                maxLength={6}
-                value={otp}
-                onChangeText={(t) => {setOtp(t); setError('');}}
-              />
-            )}
+      {/* ── Green stripe (bottom) ── */}
+      <Animated.View
+        style={[styles.greenStripe, { transform: [{ translateY: botStripeAnim }] }]}
+      />
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {/* ── Navy overlay center card ── */}
+      <View style={styles.centerCard}>
 
-            <TouchableOpacity 
-              style={styles.primaryBtn} 
-              onPress={step === 'phone' ? handlePhoneSubmit : handleVerifyOtp}
-              disabled={loading}
-            >
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Continue</Text>}
-            </TouchableOpacity>
+        {/* Ministry badge row */}
+        <Animated.View style={[styles.ministryRow, { opacity: logoFade }]}>
+          <View style={styles.emblemBox}>
+            <Text style={styles.emblemIcon}>🏛️</Text>
           </View>
-        )}
-      </Animated.View>
+          <View style={{ marginLeft: 8 }}>
+            <Text style={styles.ministryLine1}>GOVERNMENT OF INDIA</Text>
+            <Text style={styles.ministryLine2}>Ministry of Urban Development</Text>
+          </View>
+        </Animated.View>
 
-      <View style={styles.footer}>
-        <Text style={styles.govtHindi}>आवासन और शहरी कार्य मंत्रालय</Text>
-        <Text style={styles.govtEnglish}>MINISTRY OF HOUSING AND URBAN AFFAIRS</Text>
+        {/* Ashoka Chakra (spinning) */}
+        <Animated.View style={[styles.chakraWrap, { opacity: ashokFade }]}>
+          <Animated.Text style={[styles.chakra, { transform: [{ rotate: chakraSpin }] }]}>
+            ☸
+          </Animated.Text>
+        </Animated.View>
+
+        {/* Brand name */}
+        <Animated.View style={{
+          opacity: logoFade,
+          transform: [{ scale: logoScale }],
+          alignItems: 'center',
+        }}>
+          <Text style={styles.brandEN}>NIVARAN</Text>
+          <Text style={styles.brandHI}>निवारण पोर्टल</Text>
+        </Animated.View>
+
+        {/* Tricolor divider */}
+        <Animated.View style={[styles.tricolorBar, { opacity: logoFade }]}>
+          <View style={[styles.triSlice, { backgroundColor: '#FF9933' }]} />
+          <View style={[styles.triSlice, { backgroundColor: '#FFFFFF' }]} />
+          <View style={[styles.triSlice, { backgroundColor: '#138808' }]} />
+        </Animated.View>
+
+        {/* Tagline */}
+        <Animated.Text style={[styles.tagline, {
+          opacity: taglineFade,
+          transform: [{ translateY: taglineSlide }],
+        }]}>
+          आपकी शिकायतों का त्वरित समाधान
+        </Animated.Text>
+        <Animated.Text style={[styles.taglineEN, {
+          opacity: taglineFade,
+          transform: [{ translateY: taglineSlide }],
+        }]}>
+          Swift Resolution of Your Grievances
+        </Animated.Text>
+
       </View>
-    </SafeAreaView>
+
+      {/* ── Bottom watermark ── */}
+      <Animated.Text style={[styles.watermark, { opacity: taglineFade }]}>
+        स्वच्छता • पारदर्शिता • जवाबदेही
+      </Animated.Text>
+    </Animated.View>
   );
 }
 
-const CategoryBox = ({ icon, label, color, onPress }: any) => (
-  <TouchableOpacity style={styles.catBox} onPress={onPress}>
-    <View style={[styles.iconCircle, { backgroundColor: color + '15' }]}>
-      <Text style={{ fontSize: 24 }}>{icon}</Text>
-    </View>
-    <Text style={[styles.catLabel, { color: color }]}>{label}</Text>
-  </TouchableOpacity>
-);
+const STRIPE_H = height * 0.28;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F0F7F0' },
-  header: { alignItems: 'center', marginTop: 30 },
-  logo: { width: 150, height: 60 },
-  sloganHindi: { fontSize: 11, fontWeight: '700', color: '#64748B' },
-  
-  mainContent: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
-  brandTitle: { fontSize: 48, fontWeight: '900', color: '#004A7C' },
-  brandSub: { fontSize: 14, color: '#64748B', marginBottom: 30 },
+  root: {
+    flex: 1,
+    backgroundColor: '#1E3A8A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-  gridContainer: { width: '100%', gap: 15 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
-  catBox: { width: '31%', backgroundColor: '#fff', padding: 12, borderRadius: 20, alignItems: 'center', elevation: 3 },
-  iconCircle: { width: 45, height: 45, borderRadius: 22.5, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  catLabel: { fontSize: 9, fontWeight: 'bold', textTransform: 'uppercase' },
+  // Tricolor stripes
+  whiteMiddle: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#F8F8F8',
+    top: STRIPE_H,
+    bottom: STRIPE_H,
+  },
+  saffronStripe: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: STRIPE_H,
+    backgroundColor: '#FF9933',
+  },
+  greenStripe: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: STRIPE_H,
+    backgroundColor: '#138808',
+  },
 
-  authCard: { width: '100%', backgroundColor: '#fff', borderRadius: 25, padding: 25, elevation: 8 },
-  backBtn: { marginBottom: 15 },
-  backBtnText: { color: '#004A7C', fontWeight: 'bold' },
-  authTitle: { fontSize: 24, fontWeight: 'bold', color: '#1E293B' },
-  authSub: { fontSize: 13, color: '#64748B', marginBottom: 20 },
-  input: { borderBottomWidth: 2, borderBottomColor: '#004A7C', fontSize: 22, paddingVertical: 10, marginBottom: 10, textAlign: 'center' },
-  errorText: { color: '#EF4444', fontSize: 12, textAlign: 'center', marginBottom: 15, fontWeight: 'bold' },
-  primaryBtn: { backgroundColor: '#004A7C', paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  // Center card
+  centerCard: {
+    width: width * 0.82,
+    backgroundColor: '#1E3A8A',
+    borderRadius: 28,
+    paddingVertical: 36,
+    paddingHorizontal: 28,
+    alignItems: 'center',
+    // shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 20,
+  },
 
-  footer: { alignItems: 'center', paddingBottom: 25 },
-  govtHindi: { fontSize: 12, fontWeight: 'bold', color: '#1E293B' },
-  govtEnglish: { fontSize: 9, color: '#1E293B' },
+  // Ministry
+  ministryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.15)',
+    paddingBottom: 16,
+    width: '100%',
+  },
+  emblemBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emblemIcon: { fontSize: 22 },
+  ministryLine1: { color: '#93C5FD', fontSize: 9, fontWeight: '900', letterSpacing: 1.5 },
+  ministryLine2: { color: 'white', fontSize: 11, fontWeight: '700', marginTop: 1 },
+
+  // Chakra
+  chakraWrap: { marginBottom: 8 },
+  chakra: { fontSize: 52, color: '#3B82F6' },
+
+  // Brand
+  brandEN: {
+    color: 'white',
+    fontSize: 40,
+    fontWeight: '900',
+    letterSpacing: 6,
+    textShadowColor: 'rgba(59,130,246,0.6)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 16,
+  },
+  brandHI: {
+    color: '#BFDBFE',
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginTop: -4,
+    marginBottom: 16,
+  },
+
+  // Tricolor bar
+  tricolorBar: {
+    flexDirection: 'row',
+    height: 5,
+    width: '70%',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  triSlice: { flex: 1 },
+
+  // Tagline
+  tagline: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    opacity: 0.9,
+    lineHeight: 20,
+  },
+  taglineEN: {
+    color: '#93C5FD',
+    fontSize: 11,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: 4,
+    letterSpacing: 0.5,
+  },
+
+  // Watermark
+  watermark: {
+    position: 'absolute',
+    bottom: STRIPE_H + 14,
+    color: '#1E3A8A',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
 });
