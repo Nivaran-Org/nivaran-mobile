@@ -1,110 +1,101 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BASE_URL = 'http://192.168.18.7:5000';
 
 type User = {
-  uid: string;
-  phoneNumber: string;
-  displayName: string;
-  email: string;
   id: number;
+  name: string;
+  email: string;
+  role: string;
+  displayName: string;
 };
 
 type AuthContextType = {
   user: User | null;
   isLoading: boolean;
-  signIn: (emailOrPhone: string, password?: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<boolean>;
+  signUp: (name: string, email: string, password: string) => Promise<{ success: boolean; message: string }>;
   signOutUser: () => Promise<void>;
-  verificationId: string | null;
-  register: (name: string, email: string, password: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [verificationId, setVerificationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    checkExistingSession();
+    restoreSession();
   }, []);
 
-  const checkExistingSession = async () => {
+  const restoreSession = async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
-      const userData = await AsyncStorage.getItem('user');
-      if (token && userData) {
-        const parsed = JSON.parse(userData);
-        setUser({
-          uid: String(parsed.id),
-          phoneNumber: '',
-          displayName: parsed.name,
-          email: parsed.email,
-          id: parsed.id,
-        });
+      const stored = await AsyncStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setUser({ ...parsed, displayName: parsed.name });
       }
     } catch (e) {
-      console.error('Session check error:', e);
+      console.error('Session restore error:', e);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // signIn handles both step1 (send OTP = just set verificationId)
-  // and step2 (verify = real login with email+password)
-  const signIn = async (emailOrPhone: string, password?: string) => {
-    if (!password) {
-      // Step 1: simulate OTP send — just store email and set verificationId
-      await AsyncStorage.setItem('pending_email', emailOrPhone);
-      setVerificationId('pending');
-      return;
-    }
-
-    // Step 2: real login
-    const email = await AsyncStorage.getItem('pending_email') || emailOrPhone;
-    const res = await fetch(`${BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json();
-
-    if (data.success) {
-      await AsyncStorage.setItem('token', data.token);
-      await AsyncStorage.setItem('user', JSON.stringify(data.user));
-      setUser({
-        uid: String(data.user.id),
-        phoneNumber: emailOrPhone,
-        displayName: data.user.name,
-        email: data.user.email,
-        id: data.user.id,
+  const signIn = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       });
-      setVerificationId(null);
-    } else {
-      throw new Error(data.message || 'Login failed');
+      const data = await res.json();
+
+      if (data.success) {
+        const userData = { ...data.user, displayName: data.user.name };
+        await AsyncStorage.setItem('token', data.token);
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+        setUser(userData);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Login error:', err);
+      return false;
     }
   };
 
-  const register = async (name: string, email: string, password: string) => {
-    const res = await fetch(`${BASE_URL}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password }),
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.message || 'Registration failed');
+  const signUp = async (
+    name: string,
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password }),
+      });
+      const data = await res.json();
+      return {
+        success: data.success,
+        message: data.message || (data.success ? 'Registered successfully' : 'Registration failed'),
+      };
+    } catch (err) {
+      console.error('Register error:', err);
+      return { success: false, message: 'Connection failed. Check your network.' };
+    }
   };
 
   const signOutUser = async () => {
-    await AsyncStorage.multiRemove(['token', 'user', 'pending_email']);
+    await AsyncStorage.removeItem('token');
+    await AsyncStorage.removeItem('user');
     setUser(null);
-    setVerificationId(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, signIn, signOutUser, verificationId, register }}>
+    <AuthContext.Provider value={{ user, isLoading, signIn, signUp, signOutUser }}>
       {children}
     </AuthContext.Provider>
   );
