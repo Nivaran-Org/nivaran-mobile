@@ -14,11 +14,12 @@ type User = {
   displayName: string;
 };
 
+// 1. Update the type
 type AuthContextType = {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  signIn: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; role?: string; message?: string }>;
   signUp: (name: string, email: string, password: string) => Promise<{ success: boolean; message: string }>;
   signOutUser: () => Promise<void>;
 };
@@ -51,27 +52,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signIn = async (email: string, password: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
+  try {
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
 
-      if (data.success) {
-        const userData = { ...data.user, displayName: data.user.name };
-        await AsyncStorage.setItem('token', data.token);
-        await AsyncStorage.setItem('user', JSON.stringify(userData));
-        setToken(data.token);
-        setUser(userData);
-        return { success: true };
-      }
-      return { success: false, message: data.message || 'Login failed' };
-    } catch (err) {
-      return { success: false, message: 'Connection failed. Check your network.' };
+    if (data.success) {
+      const userData = { ...data.user, displayName: data.user.name };
+      await AsyncStorage.setItem('token', data.token);
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      setToken(data.token);
+      setUser(userData);
+      return { success: true, role: data.user.role };  // ← add role here
     }
-  };
+    return { success: false, message: data.message || 'Login failed' };
+  } catch (err) {
+    return { success: false, message: 'Connection failed. Check your network.' };
+  }
+};
 
   const signUp = async (name: string, email: string, password: string) => {
     try {

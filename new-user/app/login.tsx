@@ -16,6 +16,8 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { router } from 'expo-router';
 import { ArrowRight, Eye, EyeOff } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BASE_URL } from '../contexts/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
@@ -66,25 +68,48 @@ export default function LoginScreen() {
     ).start();
   }, []);
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password');
-      return;
-    }
-    setLoading(true);
-    try {
-      const success = await signIn(email.trim(), password);
-      if (success) {
-        router.replace('/(tabs)/home');
+const handleLogin = async () => {
+  if (!email || !password) {
+    Alert.alert('Error', 'Please enter both email and password');
+    return;
+  }
+  setLoading(true);
+  try {
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      const userData = { ...data.user, displayName: data.user.name };
+      await AsyncStorage.setItem('token', data.token);
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      
+      // Call signIn to update AuthContext state properly
+      await signIn(email.trim(), password);
+
+      // Small delay to let React state propagate
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      if (data.user.role === 'admin') {
+        router.replace('/(admin)/dashboard');
+      } else if (data.user.role === 'officer') {
+        router.replace('/(officer)/home');
       } else {
-        Alert.alert('Login Failed', 'Invalid email or password.');
+        router.replace('/(tabs)/home');
       }
-    } catch {
-      Alert.alert('Error', 'Connection failed. Check your network.');
-    } finally {
-      setLoading(false);
+    } else {
+      Alert.alert('Login Failed', data.message || 'Invalid credentials.');
     }
-  };
+  } catch (e) {
+    console.error('Login error:', e);
+    Alert.alert('Error', 'Connection failed.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleRegister = async () => {
     if (!name || !regEmail || !regPassword || !confirmPassword) {

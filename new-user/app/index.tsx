@@ -9,10 +9,15 @@ export default function Index() {
 
   useEffect(() => {
     if (isLoading) return;
-    if (user) {
-      router.replace('/(tabs)/home');
-    } else {
+
+    if (!user) {
       router.replace('/login');
+    } else if (user.role === 'admin') {
+      router.replace('/(admin)/dashboard');
+    } else if (user.role === 'officer') {
+      router.replace('/(officer)/home');
+    } else {
+      router.replace('/(tabs)/home');
     }
   }, [user, isLoading]);
 
@@ -28,6 +33,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#f0fdf4',  // stays green — it's just the loading screen
   },
 });
