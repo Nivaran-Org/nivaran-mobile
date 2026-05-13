@@ -14,6 +14,8 @@ export default function OfficerLayout() {
       tabBarStyle: { backgroundColor: '#fff', borderTopColor: '#dbeafe' },
       headerShown: false,
     }}>
+      <Tabs.Screen name="index"    options={{ href: null }} />
+      <Tabs.Screen name="briefing" options={{ href: null }} />
       <Tabs.Screen name="home"    options={{ title: 'Complaints', tabBarIcon: ({ color }) => <Home size={22} color={color} /> }} />
       <Tabs.Screen name="report"  options={{ title: 'Update',     tabBarIcon: ({ color }) => <FileText size={22} color={color} /> }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile',    tabBarIcon: ({ color }) => <User size={22} color={color} /> }} />

@@ -1,12 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  SafeAreaView, ActivityIndicator, RefreshControl, Platform,
+  SafeAreaView, ActivityIndicator, RefreshControl, Platform, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import { getComplaints } from '../../../services/api';
+import { getComplaints, getOfficers, getAllUsers } from '../../../services/api';
+import { BASE_URL } from '../../../contexts/AuthContext';
 
 const STATUS_COLOR: Record<string, { bg: string; text: string }> = {
   pending:     { bg: '#FEF3C7', text: '#D97706' },
@@ -24,8 +25,61 @@ export default function NewCases() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await getComplaints();
-      if (res.success) setComplaints(res.data);
+      const [cRes, oRes, uRes] = await Promise.all([
+        getComplaints(),
+        getOfficers(),
+        getAllUsers()
+      ]);
+      
+      if (cRes.success) {
+        const rawData = cRes.data || [];
+        const linked = rawData.map((c: any) => {
+          const reporter = uRes.data?.find((u: any) => u.id === c.user_id);
+          const officer = oRes.data?.find((o: any) => o.id === c.assigned_to);
+
+          const getResPhoto = (obj: any) => {
+            if (!obj) return null;
+            const candidates = [
+              obj.rectification_image, obj.rectificationImage, obj.rectified_image, 
+              obj.rectifiedImage, obj.rectifiedImageUrl, obj.rectified_image_url, 
+              obj.rectified_photo_url, obj.resolved_photo_url, obj.resolved_photo, 
+              obj.resolution_photo, obj.rectification_photo, obj.proof_url,
+              obj.rectification_image_url
+            ];
+            for (const cand of candidates) {
+              if (typeof cand === 'string') return cand;
+              if (cand && typeof cand === 'object' && cand.url) return cand.url;
+              if (cand && typeof cand === 'object' && cand.uri) return cand.uri;
+            }
+            if (Array.isArray(obj.rectification_images) && obj.rectification_images[0]) {
+              const first = obj.rectification_images[0];
+              return typeof first === 'string' ? first : (first?.url || first?.uri);
+            }
+            if (obj.resolution) return getResPhoto(obj.resolution);
+            return null;
+          };
+
+          const resPhoto = getResPhoto(c);
+          const formattedResPhoto = resPhoto 
+            ? (typeof resPhoto === 'string' ? (resPhoto.startsWith('http') ? resPhoto : `${BASE_URL}${resPhoto.startsWith('/') ? '' : '/'}${resPhoto}`) : null)
+            : null;
+
+          const mainPhoto = c.photo_url;
+          const formattedMainPhoto = mainPhoto
+            ? (mainPhoto.startsWith('http') ? mainPhoto : `${BASE_URL}${mainPhoto.startsWith('/') ? '' : '/'}${mainPhoto}`)
+            : 'https://via.placeholder.com/100';
+
+          return {
+            ...c,
+            display_user_name: c.user_name || c.user?.name || reporter?.name || 'Citizen',
+            display_officer_name: c.officer_name || officer?.name || 'Unassigned',
+            display_main_photo: formattedMainPhoto,
+            display_resolved_photo: formattedResPhoto,
+            norm_status: (c.status || 'pending').toLowerCase().replace('-', '_')
+          };
+        });
+        setComplaints(linked);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -41,7 +95,7 @@ export default function NewCases() {
 
   const filtered = filter === 'all'
     ? complaints
-    : complaints.filter(c => c.status === filter);
+    : complaints.filter(c => c.norm_status === filter);
 
   const sorted = [...filtered].sort((a, b) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -100,16 +154,25 @@ export default function NewCases() {
               style={styles.caseCard}
               onPress={() => router.push(`/(admin)/screens/case-details?id=${item.id}`)}
             >
-              <View style={styles.topRow}>
-                <Text style={styles.caseId}>#{item.id}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
-                  <Text style={[styles.statusText, { color: sc.text }]}>
-                    {item.status.replace('_', ' ').toUpperCase()}
-                  </Text>
+              <View style={styles.cardMain}>
+                <Image 
+                  source={{ uri: item.display_resolved_photo || item.display_main_photo }} 
+                  style={styles.caseThumb} 
+                />
+                <View style={{ flex: 1 }}>
+                  <View style={styles.topRow}>
+                    <Text style={styles.caseId}>#{item.id}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
+                      <Text style={[styles.statusText, { color: sc.text }]}>
+                        {(item.status || 'pending').replace('_', ' ').toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.caseTitle} numberOfLines={1}>{item.title}</Text>
+                  <Text style={styles.reporterName}>By {item.display_user_name}</Text>
                 </View>
               </View>
 
-              <Text style={styles.caseTitle}>{item.title}</Text>
               <Text style={styles.caseDesc} numberOfLines={2}>{item.description}</Text>
 
               <View style={styles.metaRow}>
@@ -123,7 +186,7 @@ export default function NewCases() {
                 </View>
                 <View style={styles.metaItem}>
                   <Ionicons name="person-outline" size={12} color="#94A3B8" />
-                  <Text style={styles.metaText}>{item.assigned_to ? `Officer #${item.assigned_to}` : 'Unassigned'}</Text>
+                  <Text style={styles.metaText}>{item.display_officer_name}</Text>
                 </View>
               </View>
 
@@ -170,11 +233,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 20, padding: 16, marginBottom: 14,
     elevation: 3, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8,
   },
-  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  caseId: { fontSize: 12, fontWeight: '900', color: '#94A3B8' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  statusText: { fontSize: 10, fontWeight: '900' },
-  caseTitle: { fontSize: 16, fontWeight: '900', color: '#1E293B', marginBottom: 6 },
+  cardMain: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  caseThumb: { width: 60, height: 60, borderRadius: 12, backgroundColor: '#F1F5F9' },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  caseId: { fontSize: 10, fontWeight: '900', color: '#94A3B8' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
+  statusText: { fontSize: 9, fontWeight: '900' },
+  caseTitle: { fontSize: 16, fontWeight: '900', color: '#1E293B', marginBottom: 2 },
+  reporterName: { fontSize: 11, color: '#64748B', fontWeight: '600' },
   caseDesc: { fontSize: 13, color: '#64748B', lineHeight: 18, marginBottom: 12 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },

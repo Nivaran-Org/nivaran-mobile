@@ -49,6 +49,36 @@ export const updateComplaintStatus = async (complaintId: number, status: string,
   return res.json();
 };
 
+export const updateComplaintWithFormData = async (complaintId: number, formData: FormData) => {
+  const url = `${BASE_URL}/api/complaints/${complaintId}/officer-update`;
+  
+  try {
+    const res = await fetch(url, {
+      method: 'POST', // Matches your backend router.post
+      headers: await getHeaders(true),
+      body: formData,
+    });
+
+    // Check if the response is valid before parsing
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`Server Error (${res.status}):`, errorText);
+      return { success: false, message: `Server error: ${res.status}` };
+    }
+
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      // Fallback if server sends success text instead of JSON
+      return { success: true, message: 'Update successful' };
+    }
+  } catch (err) {
+    console.error(`Fetch error at POST ${url}:`, err);
+    return { success: false, message: 'Network request failed' };
+  }
+};
+
 
 // ── Users ────────────────────────────────────────────────
 export const getOfficers = async () => {

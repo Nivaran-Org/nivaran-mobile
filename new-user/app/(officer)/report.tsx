@@ -1,368 +1,663 @@
-import React, { useState, useRef } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  Modal,
-  Animated,
-} from "react-native";
-import * as ImagePicker from "expo-image-picker";
-import { Ionicons } from "@expo/vector-icons";
-import { useComplaints, Complaint } from "../../contexts/ComplaintsContext";
-import { useAuth } from "../../contexts/AuthContext";
+/**
+ * app/(officer)/report.tsx
+ * Officer Grievance Management Dashboard
+ *
+ * Uses the real Express + PostgreSQL backend via services/api.ts:
+ *   - getOfficerComplaints()        → fetch all complaints visible to officer
+ *   - updateComplaintStatus()       → PATCH status / assign
+ *   - assignComplaint()             → PATCH assign officer
+ *
+ * Camera / gallery via expo-image-picker (same pattern as citizen report.tsx)
+ * GPS via expo-location
+ * Green NIVARAN theme throughout
+ */
 
-// ── UID Generator ─────────────────────────────────────────────────────────────
-const generateUID = (): string => {
-  const now = new Date();
-  const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
-    now.getDate()
-  ).padStart(2, "0")}`;
-  const rand = Math.random().toString(36).toUpperCase().slice(2, 6);
-  return `GRV-${date}-${rand}`;
+import React, { useState, useCallback } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity, Image,
+  ScrollView, StyleSheet, Alert, ActivityIndicator,
+  Modal, Platform, StatusBar, RefreshControl,
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  getOfficerComplaints,
+  updateComplaintStatus,
+  assignComplaint,
+  updateComplaintWithFormData,
+} from '../../services/api';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ComplaintStatus = 'pending' | 'in_progress' | 'resolved' | 'rejected';
+type Priority = 'low' | 'medium' | 'high';
+
+type Complaint = {
+  id: number;
+  title: string;
+  description: string;
+  status: ComplaintStatus;
+  priority: Priority;
+  department: string;
+  latitude: string | null;
+  longitude: string | null;
+  photo_url: string | null;
+  created_at: string;
+  updated_at: string;
+  assigned_to: number | null;
 };
 
-// ── Constants ────────────────────────────────────────────────────────────────
-const COMPLAINT_CATEGORIES = [
-  { id: "water_leak",  label: "Water Leak",  icon: "water"              },
-  { id: "electricity", label: "Electricity", icon: "flash"              },
-  { id: "road_damage", label: "Road Damage", icon: "car"                },
-  { id: "sanitation",  label: "Sanitation",  icon: "trash"              },
-  { id: "other",       label: "Other",       icon: "ellipsis-horizontal" },
-];
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const C = {
+  bg:          '#F8FAFC',
+  surface:     '#FFFFFF',
+  card:        '#FFFFFF',
+  cardBorder:  '#E2E8F0',
+  primary:     '#1E3A8A',
+  primaryMid:  '#3B82F6',
+  accent:      '#22C55E',
+  danger:      '#EF4444',
+  warning:     '#F59E0B',
+  textHigh:    '#1E293B',
+  textMid:     '#64748B',
+  textLow:     '#94A3B8',
+};
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
-  pending:       { color: "#E65100", bg: "#FFF3E0", label: "PENDING",     icon: "time-outline"             },
-  "in-progress": { color: "#0D47A1", bg: "#E3F2FD", label: "IN PROGRESS", icon: "reload-circle-outline"    },
-  resolved:      { color: "#1B5E20", bg: "#E8F5E9", label: "RESOLVED",    icon: "checkmark-circle-outline" },
-  rejected:      { color: "#B71C1C", bg: "#FFEBEE", label: "REJECTED",    icon: "close-circle-outline"     },
+  pending:     { color: C.warning,    bg: '#FFFBEB', label: 'Pending',     icon: 'time-outline'             },
+  in_progress: { color: C.primaryMid, bg: '#EFF6FF', label: 'In Progress', icon: 'reload-circle-outline'    },
+  resolved:    { color: C.accent,     bg: '#F0FDF4', label: 'Resolved',    icon: 'checkmark-circle-outline' },
+  rejected:    { color: C.danger,     bg: '#FEF2F2', label: 'Rejected',    icon: 'close-circle-outline'     },
 };
 
-const PRIORITY_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
-  Low:      { color: "#546E7A", bg: "#ECEFF1", label: "Low"      },
-  Medium:   { color: "#F57C00", bg: "#FFF8E1", label: "Medium"   },
-  High:     { color: "#E53935", bg: "#FFEBEE", label: "High"     },
-  Critical: { color: "#B71C1C", bg: "#FCE4EC", label: "Critical" },
+const PRIORITY_CONFIG: Record<string, { color: string; bg: string }> = {
+  low:    { color: C.textMid,  bg: '#F1F5F9' },
+  medium: { color: C.warning,  bg: '#FFFBEB' },
+  high:   { color: C.danger,   bg: '#FEF2F2' },
 };
 
-const TEAM_MEMBERS = [
-  { id: "T1", name: "Inspector Harpreet Kaur",    dept: "Traffic & Roads",  initials: "HK", color: "#0D47A1" },
-  { id: "T2", name: "Sub-Inspector Gurjeet Singh", dept: "Sanitation",       initials: "GS", color: "#1B5E20" },
-  { id: "T3", name: "ASI Mandeep Sharma",          dept: "Public Safety",    initials: "MS", color: "#6A1B9A" },
-  { id: "T4", name: "Constable Amritpal Dhillon",  dept: "Water Supply",     initials: "AD", color: "#E65100" },
-  { id: "T5", name: "Constable Simran Grewal",     dept: "Electricity",      initials: "SG", color: "#F57C00" },
-];
+const STATUS_KEYS = ['pending', 'in_progress', 'resolved', 'rejected'] as const;
 
-// ── Component ─────────────────────────────────────────────────────────────────
-export default function ReportScreen() {
-  const { complaints, addComplaint, updateComplaint } = useComplaints();
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmt(iso: string) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+}
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1)  return 'Just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+const showAlert = (title: string, msg: string, onOk?: () => void) => {
+  if (Platform.OS === 'web') { window.alert(`${title}\n${msg}`); onOk?.(); }
+  else Alert.alert(title, msg, [{ text: 'OK', onPress: onOk }]);
+};
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+
+export default function OfficerReportScreen() {
   const { user } = useAuth();
 
-  // ── Tab ────────────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<"submit" | "track">("submit");
+  // list state
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // ── Submit form ────────────────────────────────────────────────────────────
-  const [title,       setTitle]       = useState("");
-  const [description, setDescription] = useState("");
-  const [location,    setLocation]    = useState("");
-  const [category,    setCategory]    = useState("");
-  const [photos,      setPhotos]      = useState<string[]>([]);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [lastUID,     setLastUID]     = useState<string | null>(null);
+  // filter / search
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [searchQuery,  setSearchQuery]  = useState('');
+  const [sortBy, setSortBy]             = useState<'newest' | 'oldest' | 'priority'>('newest');
+  const [showFilters, setShowFilters]   = useState(false);
 
-  // ── Track ──────────────────────────────────────────────────────────────────
-  const [searchUID,       setSearchUID]       = useState("");
-  const [searchResult,    setSearchResult]    = useState<Complaint | null>(null);
-  const [searched,        setSearched]        = useState(false);
+  // selected complaint
+  const [selected, setSelected] = useState<Complaint | null>(null);
 
-  // ── Officer Resolution Panel ───────────────────────────────────────────────
-  const [officerNote,       setOfficerNote]       = useState("");
-  const [newStatus,         setNewStatus]         = useState<string>("");
-  const [newPriority,       setNewPriority]       = useState<string>("");
-  const [assignedMember,    setAssignedMember]    = useState<string>("");
-  const [resolutionPhotos,  setResolutionPhotos]  = useState<string[]>([]);
-  const [rejectionReason,   setRejectionReason]   = useState("");
-  const [saving,            setSaving]            = useState(false);
+  // officer action form
+  const [newStatus,       setNewStatus]       = useState<string>('pending');
+  const [officerNote,     setOfficerNote]     = useState('');
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [resolutionPhotos, setResolutionPhotos] = useState<string[]>([]);
+  const [saving, setSaving]                   = useState(false);
 
-  // ── Modals ─────────────────────────────────────────────────────────────────
-  const [showStatusModal,   setShowStatusModal]   = useState(false);
-  const [showPriorityModal, setShowPriorityModal] = useState(false);
-  const [showTeamModal,     setShowTeamModal]     = useState(false);
+  // location state
+  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locationText, setLocationText] = useState('');
+  const [locLoading, setLocLoading] = useState(false);
 
-  // ── Filter (track tab) ─────────────────────────────────────────────────────
-  const [filterStatus,   setFilterStatus]   = useState<string>("all");
-  const [filterCategory, setFilterCategory] = useState<string>("all");
-  const [sortBy,         setSortBy]         = useState<"newest" | "oldest" | "priority">("newest");
-  const [showFilters,    setShowFilters]     = useState(false);
+  // modals
+  const [statusModal, setStatusModal] = useState(false);
 
-  // ── Photo helpers ──────────────────────────────────────────────────────────
-  const pickPhotos = async (setter: React.Dispatch<React.SetStateAction<string[]>>, current: string[]) => {
-    Alert.alert("Add Photo", "Choose an option", [
-      {
-        text: "Take Photo",
-        onPress: async () => {
-          const { status } = await ImagePicker.requestCameraPermissionsAsync();
-          if (status !== "granted") { Alert.alert("Permission Required", "Camera access is needed."); return; }
-          const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8 });
-          if (!result.canceled && result.assets[0]) setter((prev) => [...prev, result.assets[0].uri]);
-        },
-      },
-      {
-        text: "Choose from Gallery",
-        onPress: async () => {
-          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          if (status !== "granted") { Alert.alert("Permission Required", "Gallery access is needed."); return; }
-          const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, quality: 0.8, selectionLimit: 5 });
-          if (!result.canceled) setter((prev) => [...prev, ...result.assets.map((a) => a.uri)].slice(0, 5));
-        },
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
+  // ── Fetch ──────────────────────────────────────────────────────────────────
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
-  const handleSubmit = async () => {
-    if (!title.trim())       { Alert.alert("Required", "Please enter a complaint title."); return; }
-    if (!category)           { Alert.alert("Required", "Please select a category.");       return; }
-    if (!description.trim()) { Alert.alert("Required", "Please describe the complaint.");  return; }
-
-    setSubmitting(true);
-    const uid = generateUID();
-
-    const newComplaint: Complaint = {
-      id:           uid,
-      title,
-      description,
-      category,
-      location:     location ? ({ address: location, latitude: 0, longitude: 0 } as any) : undefined,
-      status:       "pending",
-      priority:     "Medium",
-      citizenName:  user?.displayName || "Citizen",
-      citizenPhone: user?.phone       || "",
-      createdAt:    new Date(),
-      photos,
-      officerNote:  "",
-      aiRouting:    "",
-    };
-
-    addComplaint(newComplaint);
-    await new Promise((r) => setTimeout(r, 900));
-    setSubmitting(false);
-    setLastUID(uid);
-
-    Alert.alert(
-      "✅ Complaint Submitted",
-      `Your Grievance ID is:\n\n${uid}\n\nSave this to track your complaint.`,
-      [{
-        text: "Done",
-        onPress: () => { setTitle(""); setDescription(""); setLocation(""); setCategory(""); setPhotos([]); },
-      }]
-    );
-  };
-
-  // ── Search ─────────────────────────────────────────────────────────────────
-  const handleSearch = () => {
-    const trimmed = searchUID.trim().toUpperCase();
-    if (!trimmed) { Alert.alert("Enter UID", "Please enter a Grievance ID."); return; }
-    const found = complaints.find((c) => c.id.toUpperCase() === trimmed) || null;
-    setSearchResult(found);
-    setSearched(true);
-    if (found) {
-      setOfficerNote(found.officerNote || "");
-      setNewStatus(found.status);
-      setNewPriority(found.priority || "Medium");
-      setAssignedMember((found as any).assignedTo || "");
-      setResolutionPhotos((found as any).resolutionPhotos || []);
-      setRejectionReason((found as any).rejectionReason || "");
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await getOfficerComplaints();
+      if (res.success) setComplaints(res.data ?? []);
+      else setComplaints([]);
+    } catch (e) {
+      console.error('getOfficerComplaints:', e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, []);
 
-  // ── Save Officer Update ────────────────────────────────────────────────────
-  const handleSaveUpdate = async () => {
-    if (!searchResult) return;
-    if (newStatus === "rejected" && !rejectionReason.trim()) {
-      Alert.alert("Required", "Please enter a reason for rejection.");
-      return;
-    }
-    setSaving(true);
-    await new Promise((r) => setTimeout(r, 700));
-
-    const updated = {
-      ...searchResult,
-      status:           newStatus,
-      priority:         newPriority,
-      officerNote:      officerNote.trim(),
-      assignedTo:       assignedMember,
-      resolutionPhotos: resolutionPhotos,
-      rejectionReason:  newStatus === "rejected" ? rejectionReason.trim() : "",
-      updatedAt:        new Date(),
-    };
-
-    updateComplaint(updated);
-    setSearchResult(updated as Complaint);
-    setSaving(false);
-
-    Alert.alert(
-      "✅ Updated",
-      `Complaint ${searchResult.id} has been updated successfully.`,
-    );
-  };
-
-  // ── Filtered complaints list (Track tab browse) ────────────────────────────
-  const filteredComplaints = complaints
-    .filter((c) => filterStatus === "all"    || c.status   === filterStatus)
-    .filter((c) => filterCategory === "all"  || c.category === filterCategory)
-    .sort((a, b) => {
-      if (sortBy === "newest") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      if (sortBy === "oldest") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      const priorityOrder = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-      return (priorityOrder[a.priority as keyof typeof priorityOrder] ?? 2) -
-             (priorityOrder[b.priority as keyof typeof priorityOrder] ?? 2);
-    });
-
-  // ── Submit Tab ─────────────────────────────────────────────────────────────
-  const renderSubmitTab = () => (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.tabContent}>
-      {lastUID && (
-        <View style={styles.uidBanner}>
-          <Ionicons name="bookmark" size={15} color="#1B5E20" />
-          <Text style={styles.uidBannerText}>Last ID: <Text style={styles.uidBannerUID}>{lastUID}</Text></Text>
-          <TouchableOpacity onPress={() => { setSearchUID(lastUID); setActiveTab("track"); }}>
-            <Text style={styles.uidBannerLink}>Track →</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <Text style={styles.label}>Category *</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryRow}>
-        {COMPLAINT_CATEGORIES.map((cat) => (
-          <TouchableOpacity
-            key={cat.id}
-            style={[styles.categoryChip, category === cat.id && styles.categoryChipActive]}
-            onPress={() => setCategory(cat.id)}
-          >
-            <Ionicons name={cat.icon as any} size={15} color={category === cat.id ? "#fff" : "#555"} />
-            <Text style={[styles.categoryChipText, category === cat.id && styles.categoryChipTextActive]}>{cat.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <Text style={styles.label}>Complaint Title *</Text>
-      <TextInput style={styles.input} placeholder="e.g. Water leaking from main pipe" placeholderTextColor="#aaa" value={title} onChangeText={setTitle} maxLength={100} />
-
-      <Text style={styles.label}>Location</Text>
-      <TextInput style={styles.input} placeholder="e.g. Block C, Street 4, Near Park" placeholderTextColor="#aaa" value={location} onChangeText={setLocation} />
-
-      <Text style={styles.label}>Description *</Text>
-      <TextInput style={[styles.input, styles.textArea]} placeholder="Describe the issue in detail..." placeholderTextColor="#aaa" value={description} onChangeText={setDescription} multiline numberOfLines={5} textAlignVertical="top" maxLength={500} />
-      <Text style={styles.charCount}>{description.length}/500</Text>
-
-      <Text style={styles.label}>Photos of Issue (up to 5)</Text>
-      <View style={styles.photoGrid}>
-        {photos.map((uri, index) => (
-          <View key={index} style={styles.photoWrapper}>
-            <Image source={{ uri }} style={styles.photoThumb} />
-            <TouchableOpacity style={styles.removePhoto} onPress={() => setPhotos((prev) => prev.filter((_, i) => i !== index))}>
-              <Ionicons name="close-circle" size={22} color="#E53935" />
-            </TouchableOpacity>
-          </View>
-        ))}
-        {photos.length < 5 && (
-          <TouchableOpacity style={styles.addPhotoBtn} onPress={() => pickPhotos(setPhotos, photos)}>
-            <Ionicons name="camera" size={26} color="#1565C0" />
-            <Text style={styles.addPhotoBtnText}>Add Photo</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <TouchableOpacity style={[styles.submitBtn, submitting && styles.submitBtnDisabled]} onPress={handleSubmit} disabled={submitting}>
-        {submitting
-          ? <ActivityIndicator color="#fff" />
-          : <><Ionicons name="send" size={18} color="#fff" /><Text style={styles.submitBtnText}>Submit Complaint</Text></>
-        }
-      </TouchableOpacity>
-    </ScrollView>
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      fetchData();
+    }, [fetchData]),
   );
 
-  // ── Track Tab ──────────────────────────────────────────────────────────────
-  const renderTrackTab = () => {
-    const cfg       = searchResult ? (STATUS_CONFIG[searchResult.status] ?? STATUS_CONFIG.pending) : null;
-    const stepIndex = searchResult?.status === "pending" ? 0 : searchResult?.status === "in-progress" ? 1 : 2;
+  const onRefresh = () => { setRefreshing(true); fetchData(); };
+
+  // ── Open a complaint ───────────────────────────────────────────────────────
+
+  const openComplaint = (c: Complaint) => {
+    setSelected(c);
+    setNewStatus(c.status);
+    setOfficerNote('');
+    setRejectionReason('');
+    setResolutionPhotos([]);
+  };
+
+  // ── Camera / Gallery ───────────────────────────────────────────────────────
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') { showAlert('Permission needed', 'Camera permission required.'); return; }
+    const res = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+    if (!res.canceled && res.assets[0]) {
+      setResolutionPhotos(p => [...p, res.assets[0].uri].slice(0, 5));
+    }
+  };
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') { showAlert('Permission needed', 'Gallery permission required.'); return; }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: 5 - resolutionPhotos.length,
+      quality: 0.8,
+    });
+    if (!res.canceled) {
+      setResolutionPhotos(p => [...p, ...res.assets.map(a => a.uri)].slice(0, 5));
+    }
+  };
+
+  // ── GPS ────────────────────────────────────────────────────────────────────
+
+  const getLocation = async () => {
+    setLocLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Permission needed', 'Location permission is required.');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      const geo = await Location.reverseGeocodeAsync(loc.coords);
+      if (geo[0]) {
+        const parts = [geo[0].street, geo[0].city, geo[0].region].filter(Boolean);
+        setLocationText(parts.join(', '));
+      } else {
+        setLocationText(`${loc.coords.latitude.toFixed(4)}, ${loc.coords.longitude.toFixed(4)}`);
+      }
+    } catch (e) {
+      console.error(e);
+      showAlert('Error', 'Failed to get current location.');
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
+  // ── Save Update ────────────────────────────────────────────────────────────
+
+  const handleSave = async () => {
+  if (!selected) return;
+
+  // Validation
+  if (newStatus === 'rejected' && !rejectionReason.trim()) {
+    showAlert('Required', 'Please enter a rejection reason.');
+    return;
+  }
+  if (newStatus === 'resolved' && resolutionPhotos.length === 0) {
+    showAlert('Photo required', 'Please upload a resolution photo.');
+    return;
+  }
+
+  setSaving(true);
+  try {
+    const formData = new FormData();
+    
+    // 1. Core Data
+    formData.append('status', newStatus);
+    
+    // Use 'remarks' to match the backend controller logic we drafted
+    if (officerNote.trim()) formData.append('remarks', officerNote.trim());
+    if (newStatus === 'rejected') formData.append('rejection_reason', rejectionReason.trim());
+
+    // 2. The Photo (CRITICAL: Key must be 'rectificationImage')
+    if (resolutionPhotos.length > 0) {
+      const uri = resolutionPhotos[0];
+      const filename = uri.split('/').pop() || 'resolution.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : `image/jpeg`;
+
+      formData.append('rectificationImage', {
+        uri: Platform.OS === 'ios' ? uri.replace('file://', '') : uri,
+        name: filename,
+        type: type,
+      } as any);
+    }
+
+    // 3. Optional Location
+    if (location) {
+      formData.append('latitude', String(location.latitude));
+      formData.append('longitude', String(location.longitude));
+    }
+
+    // 4. API Call - Use the targeted POST method
+    const res = await updateComplaintWithFormData(selected.id, formData);
+
+    if (!res.success) throw new Error(res.message ?? 'Update failed');
+
+    // Update Local State
+    setComplaints(prev =>
+      prev.map(c => c.id === selected.id ? { ...c, status: newStatus as ComplaintStatus } : c),
+    );
+    
+    showAlert('Success', `Complaint updated successfully.`, () => {
+      setSelected(null);
+    });
+  } catch (e: any) {
+    showAlert('Error', e?.message ?? 'Something went wrong.');
+  } finally {
+    setSaving(false);
+  }
+};
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+
+  const stats = {
+    total:      complaints.length,
+    pending:    complaints.filter(c => c.status === 'pending').length,
+    inProgress: complaints.filter(c => c.status === 'in_progress').length,
+    resolved:   complaints.filter(c => c.status === 'resolved').length,
+    rejected:   complaints.filter(c => c.status === 'rejected').length,
+  };
+
+  // ── Filtered list ──────────────────────────────────────────────────────────
+
+  const filtered = complaints
+    .filter(c => filterStatus === 'all' || c.status === filterStatus)
+    .filter(c =>
+      searchQuery === '' ||
+      c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      String(c.id).includes(searchQuery) ||
+      (c.department ?? '').toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+    .sort((a, b) => {
+      if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      const ord: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      return (ord[a.priority] ?? 1) - (ord[b.priority] ?? 1);
+    });
+
+  // ── Loading ────────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator size="large" color={C.primary} />
+        <Text style={s.loadingText}>Loading complaints…</Text>
+      </View>
+    );
+  }
+
+  // ── Detail panel ───────────────────────────────────────────────────────────
+
+  if (selected) {
+    const sc = STATUS_CONFIG[selected.status] ?? STATUS_CONFIG.pending;
+    const pc = PRIORITY_CONFIG[selected.priority] ?? PRIORITY_CONFIG.medium;
 
     return (
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.tabContent}>
+      <View style={s.root}>
+        <StatusBar barStyle="light-content" backgroundColor={C.primary} />
 
-        {/* Search Box */}
-        <View style={styles.searchRow}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="GRV-YYYYMMDD-XXXX"
-            placeholderTextColor="#aaa"
-            value={searchUID}
-            onChangeText={(t) => { setSearchUID(t); setSearched(false); setSearchResult(null); }}
-            autoCapitalize="characters"
-            autoCorrect={false}
-          />
-          <TouchableOpacity style={styles.searchBtn} onPress={handleSearch}>
-            <Ionicons name="search" size={20} color="#fff" />
+        {/* Header */}
+        <View style={s.header}>
+          <TouchableOpacity style={s.backBtn} onPress={() => setSelected(null)}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
           </TouchableOpacity>
+          <Text style={s.headerTitle} numberOfLines={1}>Complaint #{selected.id}</Text>
+          <View style={[s.statusPill, { backgroundColor: sc.bg }]}>
+            <Text style={[s.statusPillText, { color: sc.color }]}>{sc.label}</Text>
+          </View>
         </View>
 
-        {/* ── Filter Bar ── */}
-        <TouchableOpacity style={styles.filterToggle} onPress={() => setShowFilters(!showFilters)}>
-          <Ionicons name="options-outline" size={16} color="#0A2342" />
-          <Text style={styles.filterToggleText}>Filter & Sort</Text>
-          <View style={styles.filterCountBadge}>
-            <Text style={styles.filterCountText}>{filteredComplaints.length}</Text>
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+
+          {/* Info card */}
+          <View style={s.card}>
+            <Text style={s.detailTitle}>{selected.title}</Text>
+            <Text style={s.detailDesc}>{selected.description}</Text>
+
+            <View style={s.tagRow}>
+              <View style={[s.tag, { backgroundColor: pc.bg }]}>
+                <Text style={[s.tagText, { color: pc.color }]}>{(selected.priority ?? 'medium').toUpperCase()} PRIORITY</Text>
+              </View>
+              <View style={[s.tag, { backgroundColor: '#EFF6FF' }]}>
+                <Text style={[s.tagText, { color: C.primaryMid }]}>{selected.department || 'Unassigned'}</Text>
+              </View>
+            </View>
+
+            <View style={s.infoGrid}>
+              <InfoRow label="Filed"   value={fmt(selected.created_at)} />
+              <InfoRow label="Updated" value={fmt(selected.updated_at)} />
+              {selected.latitude && selected.longitude && (
+                <InfoRow label="Location" value={`${parseFloat(selected.latitude).toFixed(4)}°N, ${parseFloat(selected.longitude).toFixed(4)}°E`} />
+              )}
+            </View>
           </View>
-          <Ionicons name={showFilters ? "chevron-up" : "chevron-down"} size={14} color="#90A4AE" />
+
+          {/* Complaint photo */}
+          {selected.photo_url && (
+            <View style={s.card}>
+              <Text style={s.sectionMicro}>COMPLAINT PHOTO (BEFORE)</Text>
+              <Image source={{ uri: selected.photo_url.startsWith('http') ? selected.photo_url : `${BASE_URL}${selected.photo_url.startsWith('/') ? '' : '/'}${selected.photo_url}` }} style={s.evidencePhoto} resizeMode="cover" />
+            </View>
+          )}
+
+          {/* Resolution photo */}
+          {(selected.status === 'resolved' || selected.status === 'in_progress') && (
+            (() => {
+              const s: any = selected;
+              const img = 
+                s.rectification_image || 
+                s.rectificationImage || 
+                s.rectified_image || 
+                s.rectifiedImage || 
+                s.rectifiedImageUrl || 
+                s.rectified_image_url || 
+                s.resolved_photo_url || 
+                s.resolved_photo || 
+                s.resolution_photo || 
+                s.rectification_photo || 
+                s.proof_url ||
+                s.rectification_image_url ||
+                (Array.isArray(s.rectification_images) && s.rectification_images[0]) ||
+                s.resolution?.rectification_image ||
+                s.resolution?.photo_url;
+
+              if (!img || typeof img !== 'string') return null;
+              const uri = img.startsWith('http') ? img : `${BASE_URL}${img.startsWith('/') ? '' : '/'}${img}`;
+              return (
+                <View style={s.card}>
+                  <Text style={s.sectionMicro}>RESOLUTION PHOTO (AFTER)</Text>
+                  <Image source={{ uri }} style={s.evidencePhoto} resizeMode="cover" />
+                </View>
+              );
+            })()
+          )}
+
+          {/* Existing officer note */}
+          {(selected as any).remarks && (
+            <View style={s.card}>
+              <Text style={s.sectionMicro}>OFFICER RESOLUTION NOTE</Text>
+              <View style={s.noteBox}>
+                <Text style={s.noteText}>{(selected as any).remarks}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* ── Officer Action Panel ── */}
+          <View style={s.officerPanel}>
+            <View style={s.panelHeader}>
+              <Ionicons name="shield-checkmark" size={18} color={C.primary} />
+              <Text style={s.panelTitle}>OFFICER ACTION PANEL</Text>
+            </View>
+
+            {/* Status selector */}
+            <Text style={s.panelLabel}>Update Status</Text>
+            <TouchableOpacity style={s.selector} onPress={() => setStatusModal(true)}>
+              <View style={[s.selectorDot, { backgroundColor: STATUS_CONFIG[newStatus]?.color ?? '#888' }]} />
+              <Text style={s.selectorText}>{STATUS_CONFIG[newStatus]?.label ?? 'Select'}</Text>
+              <Ionicons name="chevron-down" size={16} color={C.textLow} />
+            </TouchableOpacity>
+
+            {/* Rejection reason */}
+            {newStatus === 'rejected' && (
+              <>
+                <Text style={s.panelLabel}>Rejection Reason *</Text>
+                <TextInput
+                  style={[s.panelInput, s.panelTextarea]}
+                  placeholder="Explain why this complaint is rejected…"
+                  placeholderTextColor={C.textLow}
+                  value={rejectionReason}
+                  onChangeText={setRejectionReason}
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
+                />
+              </>
+            )}
+
+            {/* Officer notes */}
+            <Text style={s.panelLabel}>Officer Notes / Actions Taken</Text>
+            <TextInput
+              style={[s.panelInput, s.panelTextarea]}
+              placeholder="Describe steps taken, field observations…"
+              placeholderTextColor={C.textLow}
+              value={officerNote}
+              onChangeText={setOfficerNote}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+              maxLength={600}
+            />
+            <Text style={s.charCount}>{officerNote.length}/600</Text>
+
+            {/* GPS Location */}
+            <Text style={s.panelLabel}>Your Current Location</Text>
+            <TouchableOpacity 
+              style={[s.locationBtn, locLoading && { opacity: 0.7 }]} 
+              onPress={getLocation} 
+              disabled={locLoading}
+            >
+              {locLoading
+                ? <ActivityIndicator size="small" color={C.primary} />
+                : <Ionicons name="location" size={18} color={C.primary} />
+              }
+              <Text style={s.locationBtnText} numberOfLines={1}>
+                {locationText || 'Tap to attach your GPS location'}
+              </Text>
+              {location && <View style={s.locationDot} />}
+            </TouchableOpacity>
+
+            {/* Resolution photos */}
+            <Text style={s.panelLabel}>
+              Resolution Photos * <Text style={{ color: C.danger, fontSize: 10 }}>(Mandatory)</Text>
+            </Text>
+            
+            <View style={s.photoRow}>
+              <TouchableOpacity style={s.photoActionBtn} onPress={takePhoto}>
+                <Ionicons name="camera" size={20} color={C.primary} />
+                <Text style={s.photoActionText}>Camera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.photoActionBtn} onPress={pickImage}>
+                <Ionicons name="images" size={20} color={C.primary} />
+                <Text style={s.photoActionText}>Gallery</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={s.photoGrid}>
+              {resolutionPhotos.map((uri, i) => (
+                <View key={uri} style={s.photoBox}>
+                  <Image source={{ uri }} style={s.photoThumb} />
+                  <TouchableOpacity
+                    style={s.removePhoto}
+                    onPress={() => setResolutionPhotos(p => p.filter((_, j) => j !== i))}
+                  >
+                    <Ionicons name="close-circle" size={22} color="#dc2626" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+
+            {/* Save */}
+            <TouchableOpacity
+              style={[s.saveBtn, saving && { opacity: 0.65 }]}
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              {saving
+                ? <ActivityIndicator color="#fff" />
+                : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                    <Text style={s.saveBtnText}>Save Update</Text>
+                  </>
+                )
+              }
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+
+        {/* Status Modal */}
+        <Modal visible={statusModal} transparent animationType="slide" onRequestClose={() => setStatusModal(false)}>
+          <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setStatusModal(false)}>
+            <View style={s.modalSheet}>
+              <View style={s.modalHandle} />
+              <Text style={s.modalTitle}>Update Status</Text>
+              {STATUS_KEYS.map(key => {
+                const cfg = STATUS_CONFIG[key];
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[s.modalOption, newStatus === key && s.modalOptionActive]}
+                    onPress={() => { setNewStatus(key); setStatusModal(false); }}
+                  >
+                    <View style={[s.modalDot, { backgroundColor: cfg.color }]} />
+                    <Text style={s.modalOptionText}>{cfg.label}</Text>
+                    {newStatus === key && <Ionicons name="checkmark" size={18} color={C.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      </View>
+    );
+  }
+
+  // ── Dashboard list view ────────────────────────────────────────────────────
+
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor={C.primary} />
+
+      {/* Header */}
+      <View style={s.header}>
+        <Ionicons name="shield-checkmark" size={24} color="#fbbf24" />
+        <View style={{ flex: 1 }}>
+          <Text style={s.headerTitle}>Officer Desk</Text>
+          <Text style={s.headerSub}>Hello, {user?.name?.split(' ')[0] ?? 'Officer'}</Text>
+        </View>
+        <View style={s.livePill}>
+          <View style={s.liveDot} />
+          <Text style={s.liveText}>LIVE</Text>
+        </View>
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.primary} colors={[C.primary]} />
+        }
+        contentContainerStyle={s.page}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Stats */}
+        <View style={s.statsRow}>
+          <StatChip label="Total"    value={stats.total}      color={C.textHigh} bg={C.cardBorder} />
+          <StatChip label="Pending"  value={stats.pending}    color={C.warning} bg="#FFFBEB" />
+          <StatChip label="Active"   value={stats.inProgress} color={C.primaryMid} bg="#EFF6FF" />
+          <StatChip label="Resolved" value={stats.resolved}   color={C.accent} bg="#F0FDF4" />
+        </View>
+
+        {/* Search bar */}
+        <View style={s.searchRow}>
+          <Ionicons name="search-outline" size={18} color={C.textLow} style={{ marginLeft: 12 }} />
+          <TextInput
+            style={s.searchInput}
+            placeholder="Search by title, ID, department…"
+            placeholderTextColor={C.textLow}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery !== '' && (
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={{ paddingRight: 12 }}>
+              <Ionicons name="close-circle" size={18} color={C.textLow} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Filter toggle */}
+        <TouchableOpacity style={s.filterToggle} onPress={() => setShowFilters(v => !v)}>
+          <Ionicons name="options-outline" size={16} color={C.primary} />
+          <Text style={s.filterToggleText}>Filter & Sort</Text>
+          <View style={s.filterCount}>
+            <Text style={s.filterCountText}>{filtered.length}</Text>
+          </View>
+          <Ionicons name={showFilters ? 'chevron-up' : 'chevron-down'} size={14} color={C.textLow} />
         </TouchableOpacity>
 
         {showFilters && (
-          <View style={styles.filterPanel}>
-            <Text style={styles.filterLabel}>STATUS</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-              {["all", "pending", "in-progress", "resolved", "rejected"].map((s) => (
+          <View style={s.filterPanel}>
+            {/* Status filter */}
+            <Text style={s.filterLabel}>STATUS</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+              {['all', ...STATUS_KEYS].map(st => (
                 <TouchableOpacity
-                  key={s}
-                  style={[styles.filterChip, filterStatus === s && styles.filterChipActive]}
-                  onPress={() => setFilterStatus(s)}
+                  key={st}
+                  style={[s.filterChip, filterStatus === st && s.filterChipActive]}
+                  onPress={() => setFilterStatus(st)}
                 >
-                  <Text style={[styles.filterChipText, filterStatus === s && styles.filterChipTextActive]}>
-                    {s === "all" ? "All" : STATUS_CONFIG[s]?.label ?? s}
+                  <Text style={[s.filterChipText, filterStatus === st && s.filterChipTextActive]}>
+                    {st === 'all' ? 'All' : STATUS_CONFIG[st]?.label ?? st}
                   </Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
 
-            <Text style={styles.filterLabel}>CATEGORY</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-              {[{ id: "all", label: "All" }, ...COMPLAINT_CATEGORIES].map((cat) => (
+            {/* Sort */}
+            <Text style={s.filterLabel}>SORT BY</Text>
+            <View style={s.sortRow}>
+              {(['newest', 'oldest', 'priority'] as const).map(opt => (
                 <TouchableOpacity
-                  key={cat.id}
-                  style={[styles.filterChip, filterCategory === cat.id && styles.filterChipActive]}
-                  onPress={() => setFilterCategory(cat.id)}
+                  key={opt}
+                  style={[s.sortChip, sortBy === opt && s.sortChipActive]}
+                  onPress={() => setSortBy(opt)}
                 >
-                  <Text style={[styles.filterChipText, filterCategory === cat.id && styles.filterChipTextActive]}>{cat.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <Text style={styles.filterLabel}>SORT BY</Text>
-            <View style={styles.sortRow}>
-              {(["newest", "oldest", "priority"] as const).map((s) => (
-                <TouchableOpacity
-                  key={s}
-                  style={[styles.sortChip, sortBy === s && styles.sortChipActive]}
-                  onPress={() => setSortBy(s)}
-                >
-                  <Text style={[styles.sortChipText, sortBy === s && styles.sortChipTextActive]}>
-                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  <Text style={[s.sortChipText, sortBy === opt && s.sortChipTextActive]}>
+                    {opt.charAt(0).toUpperCase() + opt.slice(1)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -370,665 +665,321 @@ export default function ReportScreen() {
           </View>
         )}
 
-        {/* ── Complaints List ── */}
-        {!searched && filteredComplaints.length > 0 && (
-          <View style={styles.complaintsList}>
-            <Text style={styles.listHeader}>ALL COMPLAINTS ({filteredComplaints.length})</Text>
-            {filteredComplaints.map((c) => {
-              const scfg = STATUS_CONFIG[c.status] ?? STATUS_CONFIG.pending;
-              const pcfg = PRIORITY_CONFIG[c.priority] ?? PRIORITY_CONFIG.Medium;
-              return (
-                <TouchableOpacity
-                  key={c.id}
-                  style={styles.complaintListItem}
-                  onPress={() => { setSearchUID(c.id); setSearchResult(c); setSearched(true); setOfficerNote(c.officerNote || ""); setNewStatus(c.status); setNewPriority(c.priority || "Medium"); setAssignedMember((c as any).assignedTo || ""); setResolutionPhotos((c as any).resolutionPhotos || []); setRejectionReason((c as any).rejectionReason || ""); }}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.listItemLeft}>
-                    <View style={[styles.listStatusDot, { backgroundColor: scfg.color }]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.listItemTitle} numberOfLines={1}>{c.title}</Text>
-                      <Text style={styles.listItemUID}>{c.id}</Text>
-                      <View style={styles.listItemMeta}>
-                        <View style={[styles.listStatusBadge, { backgroundColor: scfg.bg }]}>
-                          <Text style={[styles.listStatusText, { color: scfg.color }]}>{scfg.label}</Text>
-                        </View>
-                        <View style={[styles.listPriorityBadge, { backgroundColor: pcfg.bg }]}>
-                          <Text style={[styles.listPriorityText, { color: pcfg.color }]}>{pcfg.label}</Text>
-                        </View>
-                        <Text style={styles.listItemDate}>
-                          {new Date(c.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#B0BEC5" />
-                </TouchableOpacity>
-              );
-            })}
+        {/* Section title */}
+        <Text style={s.sectionTitle}>ALL COMPLAINTS ({filtered.length})</Text>
+
+        {/* Empty state */}
+        {filtered.length === 0 && (
+          <View style={s.empty}>
+            <Text style={s.emptyEmoji}>📋</Text>
+            <Text style={s.emptyTitle}>No complaints found</Text>
+            <Text style={s.emptySub}>Try changing filters or pull down to refresh.</Text>
           </View>
         )}
 
-        {/* Not Found */}
-        {searched && !searchResult && (
-          <View style={styles.notFound}>
-            <Ionicons name="alert-circle-outline" size={44} color="#E53935" />
-            <Text style={styles.notFoundTitle}>No complaint found</Text>
-            <Text style={styles.notFoundSub}>Check the ID and try again. Format: GRV-20260427-A3F9</Text>
-          </View>
-        )}
+        {/* Complaint cards */}
+        {filtered.map(c => {
+          const sc = STATUS_CONFIG[c.status] ?? STATUS_CONFIG.pending;
+          const pc = PRIORITY_CONFIG[c.priority] ?? PRIORITY_CONFIG.medium;
+          return (
+            <TouchableOpacity
+              key={c.id}
+              style={s.complaintCard}
+              onPress={() => openComplaint(c)}
+              activeOpacity={0.75}
+            >
+              {/* Top row */}
+              <View style={s.cardTop}>
+                <View style={[s.statusPill, { backgroundColor: sc.bg }]}>
+                  <Ionicons name={sc.icon as any} size={11} color={sc.color} />
+                  <Text style={[s.statusPillText, { color: sc.color }]}>{sc.label}</Text>
+                </View>
+                <View style={[s.priorityPill, { backgroundColor: pc.bg }]}>
+                  <Text style={[s.priorityPillText, { color: pc.color }]}>
+                    {(c.priority ?? 'medium').toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={s.timeAgo}>{timeAgo(c.created_at)}</Text>
+              </View>
 
-        {/* ── Result Card + Officer Panel ── */}
-        {searchResult && cfg && (
-          <View>
-            {/* Back to list */}
-            <TouchableOpacity style={styles.backToList} onPress={() => { setSearched(false); setSearchResult(null); setSearchUID(""); }}>
-              <Ionicons name="arrow-back" size={14} color="#0D47A1" />
-              <Text style={styles.backToListText}>Back to list</Text>
+              {/* Title */}
+              <Text style={s.cardTitle} numberOfLines={2}>{c.title}</Text>
+
+              {/* Footer */}
+              <View style={s.cardFooter}>
+                <View style={s.deptRow}>
+                  <Ionicons name="business-outline" size={12} color={C.textLow} />
+                  <Text style={s.deptText} numberOfLines={1}>{c.department || '—'}</Text>
+                </View>
+                <View style={s.cardRight}>
+                  <Text style={s.cardDate}>{fmt(c.created_at)}</Text>
+                  <Ionicons name="chevron-forward" size={14} color={C.textLow} />
+                </View>
+              </View>
             </TouchableOpacity>
-
-            {/* Complaint Details Card */}
-            <View style={styles.resultCard}>
-              <View style={styles.uidPill}>
-                <Ionicons name="barcode-outline" size={13} color="#0D47A1" />
-                <Text style={styles.uidPillText}>{searchResult.id}</Text>
-              </View>
-              <Text style={styles.resultTitle}>{searchResult.title}</Text>
-
-              <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-                <Ionicons name={cfg.icon as any} size={14} color={cfg.color} />
-                <Text style={[styles.statusBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
-              </View>
-
-              {/* Timeline */}
-              <View style={styles.timeline}>
-                {(["pending", "in-progress", "resolved"] as const).map((step, i) => {
-                  const done = i <= stepIndex;
-                  const labels = ["Submitted", "In Progress", "Resolved"];
-                  const subs   = ["Complaint registered", "Assigned to department", "Issue fixed"];
-                  return (
-                    <View key={step} style={styles.timelineStep}>
-                      <View style={styles.timelineLeft}>
-                        <View style={[styles.timelineDot, done && { backgroundColor: cfg.color, borderColor: cfg.color }]}>
-                          {done && <View style={styles.timelineDotInner} />}
-                        </View>
-                        {i < 2 && <View style={[styles.timelineLine, done && i < stepIndex && styles.timelineLineDone]} />}
-                      </View>
-                      <View style={styles.timelineContent}>
-                        <Text style={[styles.timelineLabel, done && styles.timelineLabelDone]}>{labels[i]}</Text>
-                        <Text style={styles.timelineSub}>{subs[i]}</Text>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-
-              {/* Details */}
-              <View style={styles.detailBlock}>
-                <DetailRow icon="pricetag-outline" label="Category" value={searchResult.category?.replace(/_/g, " ")} />
-                {searchResult.location && (
-                  <DetailRow icon="location-outline" label="Location"
-                    value={(searchResult.location as any).address || `${(searchResult.location as any).latitude?.toFixed(4)}, ${(searchResult.location as any).longitude?.toFixed(4)}`} />
-                )}
-                <DetailRow icon="calendar-outline" label="Submitted"
-                  value={new Date(searchResult.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} />
-                <DetailRow icon="flag-outline" label="Priority" value={searchResult.priority} />
-                <DetailRow icon="person-outline" label="Citizen" value={searchResult.citizenName} />
-                {(searchResult as any).assignedTo && (
-                  <DetailRow icon="shield-outline" label="Assigned"
-                    value={TEAM_MEMBERS.find((m) => m.id === (searchResult as any).assignedTo)?.name || (searchResult as any).assignedTo} />
-                )}
-              </View>
-
-              <Text style={styles.sectionMicro}>DESCRIPTION</Text>
-              <Text style={styles.resultDesc}>{searchResult.description}</Text>
-
-              {/* Complaint photos */}
-              {searchResult.photos && searchResult.photos.length > 0 && (
-                <>
-                  <Text style={styles.sectionMicro}>COMPLAINT PHOTOS</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
-                      {searchResult.photos.map((uri: string, i: number) => (
-                        <Image key={i} source={{ uri }} style={styles.trackPhoto} resizeMode="cover" />
-                      ))}
-                    </View>
-                  </ScrollView>
-                </>
-              )}
-
-              {/* Previous officer note */}
-              {!!searchResult.officerNote && (
-                <View style={[styles.officerNoteBox, { marginTop: 14 }]}>
-                  <Ionicons name="chatbox-ellipses-outline" size={14} color="#0D47A1" />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.officerNoteLabel}>PREVIOUS OFFICER NOTE</Text>
-                    <Text style={styles.officerNoteText}>{searchResult.officerNote}</Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Rejection reason */}
-              {!!(searchResult as any).rejectionReason && (
-                <View style={[styles.officerNoteBox, { marginTop: 8, backgroundColor: "#FFEBEE", borderLeftColor: "#B71C1C" }]}>
-                  <Ionicons name="close-circle-outline" size={14} color="#B71C1C" />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.officerNoteLabel, { color: "#B71C1C" }]}>REJECTION REASON</Text>
-                    <Text style={styles.officerNoteText}>{(searchResult as any).rejectionReason}</Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Resolution photos */}
-              {(searchResult as any).resolutionPhotos?.length > 0 && (
-                <>
-                  <Text style={[styles.sectionMicro, { marginTop: 14 }]}>RESOLUTION PHOTOS</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
-                      {(searchResult as any).resolutionPhotos.map((uri: string, i: number) => (
-                        <Image key={i} source={{ uri }} style={styles.trackPhoto} resizeMode="cover" />
-                      ))}
-                    </View>
-                  </ScrollView>
-                </>
-              )}
-            </View>
-
-            {/* ── Officer Action Panel ── */}
-            <View style={styles.officerPanel}>
-              <View style={styles.officerPanelHeader}>
-                <Ionicons name="shield-checkmark" size={16} color="#FFD700" />
-                <Text style={styles.officerPanelTitle}>OFFICER ACTION PANEL</Text>
-              </View>
-
-              {/* Status Selector */}
-              <Text style={styles.panelLabel}>Update Status</Text>
-              <TouchableOpacity style={styles.selectorBtn} onPress={() => setShowStatusModal(true)}>
-                <View style={[styles.selectorDot, { backgroundColor: STATUS_CONFIG[newStatus]?.color ?? "#aaa" }]} />
-                <Text style={styles.selectorBtnText}>{STATUS_CONFIG[newStatus]?.label ?? "Select Status"}</Text>
-                <Ionicons name="chevron-down" size={16} color="#90A4AE" />
-              </TouchableOpacity>
-
-              {/* Rejection Reason (only if rejected) */}
-              {newStatus === "rejected" && (
-                <>
-                  <Text style={styles.panelLabel}>Rejection Reason *</Text>
-                  <TextInput
-                    style={[styles.input, { marginTop: 0 }]}
-                    placeholder="Explain why this complaint is being rejected..."
-                    placeholderTextColor="#aaa"
-                    value={rejectionReason}
-                    onChangeText={setRejectionReason}
-                    multiline
-                    numberOfLines={3}
-                    textAlignVertical="top"
-                  />
-                </>
-              )}
-
-              {/* Priority Selector */}
-              <Text style={styles.panelLabel}>Set Priority</Text>
-              <TouchableOpacity style={styles.selectorBtn} onPress={() => setShowPriorityModal(true)}>
-                <View style={[styles.selectorDot, { backgroundColor: PRIORITY_CONFIG[newPriority]?.color ?? "#aaa" }]} />
-                <Text style={styles.selectorBtnText}>{newPriority || "Select Priority"}</Text>
-                <Ionicons name="chevron-down" size={16} color="#90A4AE" />
-              </TouchableOpacity>
-
-              {/* Assign Team Member */}
-              <Text style={styles.panelLabel}>Assign to Officer</Text>
-              <TouchableOpacity style={styles.selectorBtn} onPress={() => setShowTeamModal(true)}>
-                <Ionicons name="person-outline" size={16} color="#546E7A" />
-                <Text style={styles.selectorBtnText}>
-                  {assignedMember
-                    ? TEAM_MEMBERS.find((m) => m.id === assignedMember)?.name ?? "Assigned"
-                    : "Select Officer"}
-                </Text>
-                <Ionicons name="chevron-down" size={16} color="#90A4AE" />
-              </TouchableOpacity>
-
-              {/* Officer Note */}
-              <Text style={styles.panelLabel}>Officer Notes / Resolution Text</Text>
-              <TextInput
-                style={[styles.input, styles.textArea, { marginTop: 0 }]}
-                placeholder="Add notes, steps taken, or resolution details..."
-                placeholderTextColor="#aaa"
-                value={officerNote}
-                onChangeText={setOfficerNote}
-                multiline
-                numberOfLines={5}
-                textAlignVertical="top"
-                maxLength={600}
-              />
-              <Text style={styles.charCount}>{officerNote.length}/600</Text>
-
-              {/* Resolution Photos */}
-              <Text style={styles.panelLabel}>Resolution Photos (proof of fix)</Text>
-              <View style={styles.photoGrid}>
-                {resolutionPhotos.map((uri, index) => (
-                  <View key={index} style={styles.photoWrapper}>
-                    <Image source={{ uri }} style={styles.photoThumb} />
-                    <TouchableOpacity style={styles.removePhoto} onPress={() => setResolutionPhotos((prev) => prev.filter((_, i) => i !== index))}>
-                      <Ionicons name="close-circle" size={22} color="#E53935" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-                {resolutionPhotos.length < 5 && (
-                  <TouchableOpacity style={styles.addPhotoBtn} onPress={() => pickPhotos(setResolutionPhotos, resolutionPhotos)}>
-                    <Ionicons name="camera" size={26} color="#1565C0" />
-                    <Text style={styles.addPhotoBtnText}>Add Photo</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Save Button */}
-              <TouchableOpacity
-                style={[styles.saveBtn, saving && styles.submitBtnDisabled]}
-                onPress={handleSaveUpdate}
-                disabled={saving}
-              >
-                {saving
-                  ? <ActivityIndicator color="#fff" />
-                  : <><Ionicons name="checkmark-circle" size={18} color="#fff" /><Text style={styles.saveBtnText}>Save Update</Text></>
-                }
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
+          );
+        })}
       </ScrollView>
-    );
-  };
-
-  // ── Modals ─────────────────────────────────────────────────────────────────
-  const renderModal = (
-    visible: boolean,
-    onClose: () => void,
-    title: string,
-    children: React.ReactNode
-  ) => (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
-          <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>{title}</Text>
-          {children}
-        </TouchableOpacity>
-      </TouchableOpacity>
-    </Modal>
-  );
-
-  // ── Root ───────────────────────────────────────────────────────────────────
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerIcon}><Ionicons name="alert-circle" size={26} color="#E53935" /></View>
-        <View>
-          <Text style={styles.headerTitle}>Grievance Portal</Text>
-          <Text style={styles.headerSubtitle}>Submit or manage complaints</Text>
-        </View>
-      </View>
-
-      {/* Tab Bar */}
-      <View style={styles.tabBar}>
-        {(["submit", "track"] as const).map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            style={[styles.tabBtn, activeTab === tab && styles.tabBtnActive]}
-            onPress={() => setActiveTab(tab)}
-          >
-            <Ionicons name={tab === "submit" ? "create-outline" : "search-outline"} size={16} color={activeTab === tab ? "#fff" : "#666"} />
-            <Text style={[styles.tabBtnText, activeTab === tab && styles.tabBtnTextActive]}>
-              {tab === "submit" ? "Submit Complaint" : "Track / Manage"}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {activeTab === "submit" ? renderSubmitTab() : renderTrackTab()}
-
-      {/* Status Modal */}
-      {renderModal(showStatusModal, () => setShowStatusModal(false), "Update Status",
-        <View style={styles.modalList}>
-          {Object.entries(STATUS_CONFIG).map(([key, val]) => (
-            <TouchableOpacity
-              key={key}
-              style={[styles.modalOption, newStatus === key && styles.modalOptionActive]}
-              onPress={() => { setNewStatus(key); setShowStatusModal(false); }}
-            >
-              <View style={[styles.modalOptionDot, { backgroundColor: val.color }]} />
-              <Text style={styles.modalOptionText}>{val.label}</Text>
-              {newStatus === key && <Ionicons name="checkmark" size={16} color="#0A2342" />}
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* Priority Modal */}
-      {renderModal(showPriorityModal, () => setShowPriorityModal(false), "Set Priority",
-        <View style={styles.modalList}>
-          {Object.entries(PRIORITY_CONFIG).map(([key, val]) => (
-            <TouchableOpacity
-              key={key}
-              style={[styles.modalOption, newPriority === key && styles.modalOptionActive]}
-              onPress={() => { setNewPriority(key); setShowPriorityModal(false); }}
-            >
-              <View style={[styles.modalOptionDot, { backgroundColor: val.color }]} />
-              <Text style={styles.modalOptionText}>{val.label}</Text>
-              {newPriority === key && <Ionicons name="checkmark" size={16} color="#0A2342" />}
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* Team Modal */}
-      {renderModal(showTeamModal, () => setShowTeamModal(false), "Assign to Officer",
-        <View style={styles.modalList}>
-          <TouchableOpacity
-            style={[styles.modalOption, !assignedMember && styles.modalOptionActive]}
-            onPress={() => { setAssignedMember(""); setShowTeamModal(false); }}
-          >
-            <Text style={[styles.modalOptionText, { color: "#90A4AE" }]}>Unassigned</Text>
-            {!assignedMember && <Ionicons name="checkmark" size={16} color="#0A2342" />}
-          </TouchableOpacity>
-          {TEAM_MEMBERS.map((m) => (
-            <TouchableOpacity
-              key={m.id}
-              style={[styles.modalOption, assignedMember === m.id && styles.modalOptionActive]}
-              onPress={() => { setAssignedMember(m.id); setShowTeamModal(false); }}
-            >
-              <View style={[styles.teamMiniAvatar, { backgroundColor: m.color + "22" }]}>
-                <Text style={[styles.teamMiniAvatarText, { color: m.color }]}>{m.initials}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modalOptionText}>{m.name}</Text>
-                <Text style={styles.modalOptionSub}>{m.dept}</Text>
-              </View>
-              {assignedMember === m.id && <Ionicons name="checkmark" size={16} color="#0A2342" />}
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
     </View>
   );
 }
 
-// ── Detail Row Helper ─────────────────────────────────────────────────────────
-function DetailRow({ icon, label, value }: { icon: string; label: string; value?: string }) {
-  if (!value) return null;
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function StatChip({ label, value, color, bg }: {
+  label: string; value: number; color: string; bg: string;
+}) {
   return (
-    <View style={styles.detailRow}>
-      <Ionicons name={icon as any} size={13} color="#888" />
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
+    <View style={[s.statChip, { backgroundColor: bg }]}>
+      <Text style={[s.statValue, { color }]}>{value}</Text>
+      <Text style={[s.statLabel, { color }]}>{label}</Text>
     </View>
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F5F6FA" },
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.infoRow}>
+      <Text style={s.infoLabel}>{label}</Text>
+      <Text style={s.infoValue}>{value}</Text>
+    </View>
+  );
+}
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const s = StyleSheet.create({
+  root:   { flex: 1, backgroundColor: C.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
+  loadingText: { color: C.textMid, marginTop: 12, fontSize: 14 },
+
+  /* header */
   header: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: "#fff", paddingHorizontal: 20,
-    paddingTop: 18, paddingBottom: 14,
-    borderBottomWidth: 1, borderBottomColor: "#EEE",
+    backgroundColor: C.primary,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 28) + 12 : 54,
+    paddingBottom: 18,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
   },
-  headerIcon:     { backgroundColor: "#FFEBEE", borderRadius: 10, padding: 10 },
-  headerTitle:    { fontSize: 17, fontWeight: "700", color: "#1A1A2E" },
-  headerSubtitle: { fontSize: 12, color: "#666", marginTop: 2 },
-
-  tabBar: {
-    flexDirection: "row", gap: 10,
-    backgroundColor: "#fff", paddingHorizontal: 20,
-    paddingBottom: 14, paddingTop: 4,
-    borderBottomWidth: 1, borderBottomColor: "#EEE",
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#fff' },
+  headerSub:   { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 2 },
+  backBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center', alignItems: 'center',
   },
-  tabBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    paddingVertical: 10, borderRadius: 10,
-    backgroundColor: "#F0F4F8", borderWidth: 1.5, borderColor: "#E0E0E0",
+  livePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
   },
-  tabBtnActive:     { backgroundColor: "#0A2342", borderColor: "#0A2342" },
-  tabBtnText:       { fontSize: 13, fontWeight: "600", color: "#666" },
-  tabBtnTextActive: { color: "#fff" },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.accent },
+  liveText: { fontSize: 10, fontWeight: '800', color: '#fff', letterSpacing: 0.8 },
 
-  tabContent: { padding: 16, paddingBottom: 60 },
+  page: { padding: 16, paddingBottom: 60 },
 
-  uidBanner: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: "#E8F5E9", borderRadius: 10, padding: 12, marginBottom: 18,
-    borderLeftWidth: 4, borderLeftColor: "#1B5E20",
+  /* stats */
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  statChip: {
+    flex: 1, borderRadius: 14, padding: 12,
+    alignItems: 'center',
+    borderWidth: 1.5, borderColor: C.cardBorder,
   },
-  uidBannerText: { fontSize: 13, color: "#2E7D32", flex: 1 },
-  uidBannerUID:  { fontWeight: "800", letterSpacing: 0.5 },
-  uidBannerLink: { fontSize: 13, fontWeight: "700", color: "#0D47A1" },
+  statValue: { fontSize: 22, fontWeight: '900' },
+  statLabel: { fontSize: 10, fontWeight: '700', marginTop: 2, letterSpacing: 0.3 },
 
-  label: { fontSize: 13, fontWeight: "600", color: "#333", marginBottom: 8, marginTop: 4 },
-
-  categoryRow: { marginBottom: 18 },
-  categoryChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "#fff", borderRadius: 20,
-    paddingHorizontal: 14, paddingVertical: 8, marginRight: 10,
-    borderWidth: 1.5, borderColor: "#E0E0E0",
+  /* search */
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#fff', borderRadius: 12,
+    borderWidth: 1.5, borderColor: C.cardBorder,
+    marginBottom: 10, gap: 6,
   },
-  categoryChipActive:     { backgroundColor: "#1565C0", borderColor: "#1565C0" },
-  categoryChipText:       { fontSize: 13, color: "#555", fontWeight: "500" },
-  categoryChipTextActive: { color: "#fff" },
+  searchInput: { flex: 1, fontSize: 14, color: C.textHigh, paddingVertical: 12 },
 
-  input: {
-    backgroundColor: "#fff", borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 14, color: "#1A1A2E",
-    borderWidth: 1.5, borderColor: "#E0E0E0", marginBottom: 14,
-  },
-  textArea:  { height: 110, marginBottom: 4 },
-  charCount: { fontSize: 11, color: "#aaa", textAlign: "right", marginBottom: 14 },
-
-  photoGrid:    { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 24 },
-  photoWrapper: { position: "relative" },
-  photoThumb:   { width: 90, height: 90, borderRadius: 10, backgroundColor: "#eee" },
-  removePhoto:  { position: "absolute", top: -8, right: -8, backgroundColor: "#fff", borderRadius: 12 },
-  addPhotoBtn: {
-    width: 90, height: 90, borderRadius: 10,
-    borderWidth: 2, borderColor: "#1565C0", borderStyle: "dashed",
-    alignItems: "center", justifyContent: "center", backgroundColor: "#EEF3FF",
-  },
-  addPhotoBtnText: { fontSize: 11, color: "#1565C0", fontWeight: "600", marginTop: 4 },
-
-  submitBtn: {
-    backgroundColor: "#E53935", borderRadius: 12, paddingVertical: 15,
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    shadowColor: "#E53935", shadowOpacity: 0.3, shadowRadius: 10, elevation: 5,
-  },
-  submitBtnDisabled: { opacity: 0.7 },
-  submitBtnText:     { color: "#fff", fontSize: 16, fontWeight: "700" },
-
-  // Track tab
-  searchRow:  { flexDirection: "row", gap: 10, marginBottom: 12 },
-  searchInput: {
-    flex: 1, backgroundColor: "#fff", borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 13,
-    fontSize: 14, color: "#1A1A2E",
-    borderWidth: 1.5, borderColor: "#E0E0E0",
-    fontWeight: "600", letterSpacing: 0.8,
-  },
-  searchBtn: {
-    backgroundColor: "#0A2342", borderRadius: 10,
-    paddingHorizontal: 18, justifyContent: "center", alignItems: "center",
-  },
-
-  // Filter
+  /* filter */
   filterToggle: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: "#fff", borderRadius: 10, padding: 12, marginBottom: 10,
-    borderWidth: 1.5, borderColor: "#E0E0E0",
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 10,
+    borderWidth: 1.5, borderColor: C.cardBorder,
   },
-  filterToggleText: { fontSize: 13, fontWeight: "700", color: "#0A2342", flex: 1 },
-  filterCountBadge: { backgroundColor: "#0A2342", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  filterCountText:  { fontSize: 11, color: "#fff", fontWeight: "800" },
+  filterToggleText: { fontSize: 13, fontWeight: '700', color: C.primary, flex: 1 },
+  filterCount: {
+    backgroundColor: C.primary, borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 2,
+  },
+  filterCountText: { fontSize: 11, color: '#fff', fontWeight: '800' },
   filterPanel: {
-    backgroundColor: "#fff", borderRadius: 12, padding: 14, marginBottom: 14,
-    borderWidth: 1.5, borderColor: "#E8ECF0",
+    backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 14,
+    borderWidth: 1.5, borderColor: C.cardBorder,
   },
-  filterLabel: { fontSize: 10, fontWeight: "800", color: "#90A4AE", letterSpacing: 1.5, marginBottom: 8 },
+  filterLabel: {
+    fontSize: 10, fontWeight: '800', color: C.textLow,
+    letterSpacing: 1.5, marginBottom: 8,
+  },
   filterChip: {
-    backgroundColor: "#F0F4F8", borderRadius: 16,
-    paddingHorizontal: 12, paddingVertical: 6, marginRight: 8,
-    borderWidth: 1.5, borderColor: "#E0E0E0",
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16,
+    marginRight: 8, borderWidth: 1.5, borderColor: C.cardBorder,
+    backgroundColor: '#f9fafb',
   },
-  filterChipActive:     { backgroundColor: "#0A2342", borderColor: "#0A2342" },
-  filterChipText:       { fontSize: 12, fontWeight: "600", color: "#546E7A" },
-  filterChipTextActive: { color: "#fff" },
-  sortRow: { flexDirection: "row", gap: 8 },
+  filterChipActive:     { backgroundColor: C.primary, borderColor: C.primary },
+  filterChipText:       { fontSize: 12, fontWeight: '600', color: C.textMid },
+  filterChipTextActive: { color: '#fff' },
+  sortRow: { flexDirection: 'row', gap: 8 },
   sortChip: {
-    flex: 1, alignItems: "center", paddingVertical: 8, borderRadius: 10,
-    backgroundColor: "#F0F4F8", borderWidth: 1.5, borderColor: "#E0E0E0",
+    flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 10,
+    backgroundColor: '#f9fafb', borderWidth: 1.5, borderColor: C.cardBorder,
   },
-  sortChipActive:     { backgroundColor: "#0A2342", borderColor: "#0A2342" },
-  sortChipText:       { fontSize: 12, fontWeight: "700", color: "#546E7A" },
-  sortChipTextActive: { color: "#fff" },
+  sortChipActive:     { backgroundColor: C.primary, borderColor: C.primary },
+  sortChipText:       { fontSize: 12, fontWeight: '700', color: C.textMid },
+  sortChipTextActive: { color: '#fff' },
 
-  // Complaints list
-  complaintsList: { marginBottom: 14 },
-  listHeader: { fontSize: 10, fontWeight: "800", color: "#90A4AE", letterSpacing: 1.5, marginBottom: 10 },
-  complaintListItem: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: "#fff", borderRadius: 12, padding: 14, marginBottom: 8,
-    borderWidth: 1.5, borderColor: "#EEF2F8",
-    shadowColor: "#90A4AE", shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
+  sectionTitle: {
+    fontSize: 11, fontWeight: '800', color: C.textMid,
+    letterSpacing: 1.2, marginBottom: 12,
   },
-  listItemLeft:     { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
-  listStatusDot:    { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
-  listItemTitle:    { fontSize: 14, fontWeight: "700", color: "#1A1A2E", marginBottom: 2 },
-  listItemUID:      { fontSize: 11, color: "#90A4AE", fontWeight: "600", letterSpacing: 0.5, marginBottom: 6 },
-  listItemMeta:     { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  listStatusBadge:  { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-  listStatusText:   { fontSize: 9, fontWeight: "800", letterSpacing: 0.3 },
-  listPriorityBadge:{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-  listPriorityText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.3 },
-  listItemDate:     { fontSize: 10, color: "#B0BEC5" },
 
-  backToList: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    marginBottom: 10, paddingVertical: 4,
+  /* complaint card */
+  complaintCard: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10,
+    borderWidth: 1.5, borderColor: C.cardBorder,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 5, elevation: 2,
   },
-  backToListText: { fontSize: 13, color: "#0D47A1", fontWeight: "700" },
-
-  notFound:      { alignItems: "center", paddingTop: 30, gap: 10 },
-  notFoundTitle: { fontSize: 17, fontWeight: "700", color: "#E53935" },
-  notFoundSub:   { fontSize: 13, color: "#888", textAlign: "center", paddingHorizontal: 20 },
-
-  // Result Card
-  resultCard: {
-    backgroundColor: "#fff", borderRadius: 16, padding: 18, marginBottom: 14,
-    shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 10, elevation: 3,
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  statusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20,
   },
-  uidPill: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "#EEF4FF", borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 6,
-    alignSelf: "flex-start", marginBottom: 10,
+  statusPillText: { fontSize: 10, fontWeight: '800' },
+  priorityPill:   { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  priorityPillText: { fontSize: 9, fontWeight: '800' },
+  timeAgo:  { fontSize: 11, color: C.textLow, marginLeft: 'auto' as any },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: C.textHigh, marginBottom: 10, lineHeight: 20 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  deptRow:   { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 },
+  deptText:  { fontSize: 12, color: C.textLow, flex: 1 },
+  cardRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  cardDate:  { fontSize: 12, color: C.textLow },
+
+  /* empty */
+  empty: { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 24 },
+  emptyEmoji: { fontSize: 48, marginBottom: 12 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: C.textHigh, marginBottom: 6 },
+  emptySub:   { fontSize: 13, color: C.textLow, textAlign: 'center', lineHeight: 20 },
+
+  /* detail */
+  scroll:        { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 56 },
+  card: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 12,
+    borderWidth: 1.5, borderColor: C.cardBorder,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 5, elevation: 2,
   },
-  uidPillText: { fontSize: 12, color: "#0D47A1", fontWeight: "800", letterSpacing: 1 },
-  resultTitle: { fontSize: 16, fontWeight: "800", color: "#1A1A2E", marginBottom: 10 },
-  statusBadge: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20,
-    alignSelf: "flex-start", marginBottom: 18,
-  },
-  statusBadgeText: { fontSize: 12, fontWeight: "800", letterSpacing: 0.5 },
+  detailTitle: { fontSize: 20, fontWeight: '800', color: C.textHigh, marginBottom: 8 },
+  detailDesc:  { fontSize: 14, color: C.textMid, lineHeight: 22, marginBottom: 14 },
+  tagRow:      { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 14 },
+  tag:         { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  tagText:     { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  infoGrid:    { gap: 8 },
+  infoRow:     { flexDirection: 'row', gap: 8 },
+  infoLabel:   { fontSize: 12, color: C.textLow, fontWeight: '700', width: 72 },
+  infoValue:   { fontSize: 13, color: C.textHigh, fontWeight: '600', flex: 1 },
+  sectionMicro:{ fontSize: 10, fontWeight: '800', color: C.textLow, letterSpacing: 1, marginBottom: 8 },
+  evidencePhoto: { width: '100%', height: 200, borderRadius: 12, backgroundColor: '#e5e7eb' },
+  noteBox: { backgroundColor: '#F8FAFC', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.cardBorder },
+  noteText: { fontSize: 14, color: C.textMid, lineHeight: 22 },
 
-  timeline:      { paddingLeft: 4, marginBottom: 18 },
-  timelineStep:  { flexDirection: "row", marginBottom: 4 },
-  timelineLeft:  { alignItems: "center", width: 24, marginRight: 14 },
-  timelineDot: {
-    width: 18, height: 18, borderRadius: 9,
-    borderWidth: 2, borderColor: "#E0E0E0", backgroundColor: "#fff",
-    justifyContent: "center", alignItems: "center",
-  },
-  timelineDotInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#fff" },
-  timelineLine:     { width: 2, flex: 1, backgroundColor: "#E0E0E0", marginVertical: 3, minHeight: 24 },
-  timelineLineDone: { backgroundColor: "#1B5E20" },
-  timelineContent:  { flex: 1, paddingBottom: 18 },
-  timelineLabel:    { fontSize: 14, color: "#90A4AE", fontWeight: "500" },
-  timelineLabelDone:{ color: "#1C2B3A", fontWeight: "700" },
-  timelineSub:      { fontSize: 11, color: "#B0BEC5", marginTop: 2 },
-
-  detailBlock: {
-    backgroundColor: "#F8FAFB", borderRadius: 10, padding: 12, marginBottom: 16, gap: 10,
-  },
-  detailRow:   { flexDirection: "row", alignItems: "center", gap: 8 },
-  detailLabel: { fontSize: 12, color: "#888", width: 68 },
-  detailValue: { fontSize: 13, color: "#222", fontWeight: "600", flex: 1 },
-
-  sectionMicro: { fontSize: 10, fontWeight: "800", color: "#90A4AE", letterSpacing: 1.5, marginBottom: 6 },
-  resultDesc:   { fontSize: 13, color: "#546E7A", lineHeight: 20, marginBottom: 16 },
-
-  officerNoteBox: {
-    flexDirection: "row", gap: 10, alignItems: "flex-start",
-    backgroundColor: "#EEF4FF", borderRadius: 10, padding: 12,
-    borderLeftWidth: 3, borderLeftColor: "#0D47A1",
-  },
-  officerNoteLabel: { fontSize: 9, fontWeight: "800", color: "#0D47A1", letterSpacing: 1, marginBottom: 4 },
-  officerNoteText:  { fontSize: 13, color: "#1C2B3A", lineHeight: 19 },
-
-  trackPhoto: { width: 110, height: 85, borderRadius: 8, backgroundColor: "#eee" },
-
-  // Officer Panel
+  /* officer panel */
   officerPanel: {
-    backgroundColor: "#0A2342", borderRadius: 16, padding: 18, marginBottom: 14,
-    shadowColor: "#0A2342", shadowOpacity: 0.2, shadowRadius: 12, elevation: 6,
+    backgroundColor: '#fff', borderRadius: 16, padding: 18, marginBottom: 20,
+    borderWidth: 1.5, borderColor: C.cardBorder,
   },
-  officerPanelHeader: {
-    flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 18,
-    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.1)", paddingBottom: 14,
+  panelHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderBottomWidth: 1, borderBottomColor: C.cardBorder,
+    paddingBottom: 14, marginBottom: 6,
   },
-  officerPanelTitle: { fontSize: 12, fontWeight: "800", color: "#FFD700", letterSpacing: 2 },
-  panelLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.6)", letterSpacing: 1, marginBottom: 8, marginTop: 14 },
-
-  selectorBtn: {
-    flexDirection: "row", alignItems: "center", gap: 10,
-    backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 10,
+  panelTitle: { fontSize: 12, fontWeight: '800', color: C.primary, letterSpacing: 2 },
+  panelLabel: {
+    fontSize: 11, fontWeight: '700', color: C.textMid,
+    letterSpacing: 1, marginTop: 16, marginBottom: 8,
+  },
+  selector: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#F8FAFC', borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 13,
-    borderWidth: 1.5, borderColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1.5, borderColor: C.cardBorder,
   },
-  selectorDot:     { width: 10, height: 10, borderRadius: 5 },
-  selectorBtnText: { fontSize: 14, color: "#fff", fontWeight: "600", flex: 1 },
+  selectorDot:  { width: 10, height: 10, borderRadius: 5 },
+  selectorText: { fontSize: 14, color: C.textHigh, fontWeight: '600', flex: 1 },
+  panelInput: {
+    backgroundColor: '#F8FAFC', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 14, color: C.textHigh,
+    borderWidth: 1.5, borderColor: C.cardBorder,
+  },
+  panelTextarea: { minHeight: 80, textAlignVertical: 'top', paddingTop: 12 },
+  charCount:     { fontSize: 11, color: C.textLow, textAlign: 'right', marginTop: 4 },
+
+  /* location */
+  locationBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#F8FAFC', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 13,
+    borderWidth: 1.5, borderColor: C.cardBorder,
+  },
+  locationBtnText: { flex: 1, fontSize: 13, color: C.primary, fontWeight: '600' },
+  locationDot:     { width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary },
+
+  /* photo grid */
+  photoRow:    { flexDirection: 'row', gap: 10, marginTop: 4 },
+  photoActionBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, backgroundColor: '#F8FAFC',
+    borderRadius: 10, paddingVertical: 12,
+    borderWidth: 1.5, borderColor: C.cardBorder,
+  },
+  photoActionText: { fontSize: 12, color: C.primary, fontWeight: '700' },
+
+  photoGrid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 },
+  photoBox:     { position: 'relative' },
+  photoThumb:   { width: 82, height: 82, borderRadius: 10, backgroundColor: '#F1F5F9' },
+  removePhoto:  { position: 'absolute', top: -8, right: -8, backgroundColor: '#fff', borderRadius: 12 },
+  addPhotoBtn: {
+    width: 82, height: 82, borderRadius: 10,
+    borderWidth: 2, borderColor: 'rgba(251,191,36,0.4)', borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  addPhotoText: { fontSize: 10, color: '#fbbf24', fontWeight: '700', marginTop: 4 },
 
   saveBtn: {
-    backgroundColor: "#E53935", borderRadius: 12, paddingVertical: 15, marginTop: 20,
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    shadowColor: "#E53935", shadowOpacity: 0.4, shadowRadius: 10, elevation: 5,
+    backgroundColor: C.primary, borderRadius: 12, paddingVertical: 16, marginTop: 24,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    shadowColor: C.primary, shadowOpacity: 0.35, shadowRadius: 8, elevation: 5,
   },
-  saveBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 
-  // Modal
-  modalOverlay: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end",
-  },
+  /* modal */
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalSheet: {
-    backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingBottom: 36, paddingTop: 14,
+    backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingBottom: 40, paddingTop: 14,
   },
   modalHandle: {
-    width: 40, height: 4, backgroundColor: "#E0E0E0", borderRadius: 2,
-    alignSelf: "center", marginBottom: 18,
+    width: 40, height: 4, backgroundColor: C.cardBorder, borderRadius: 2,
+    alignSelf: 'center', marginBottom: 18,
   },
-  modalTitle: { fontSize: 16, fontWeight: "800", color: "#1A1A2E", marginBottom: 16 },
-  modalList:  { gap: 4 },
+  modalTitle:       { fontSize: 16, fontWeight: '800', color: C.textHigh, marginBottom: 16 },
   modalOption: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    paddingVertical: 13, paddingHorizontal: 12, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 14, paddingHorizontal: 12, borderRadius: 12,
   },
-  modalOptionActive:  { backgroundColor: "#F0F4F8" },
-  modalOptionDot:     { width: 10, height: 10, borderRadius: 5 },
-  modalOptionText:    { fontSize: 14, color: "#1A1A2E", fontWeight: "600", flex: 1 },
-  modalOptionSub:     { fontSize: 11, color: "#90A4AE", marginTop: 2 },
-  teamMiniAvatar: {
-    width: 36, height: 36, borderRadius: 18,
-    justifyContent: "center", alignItems: "center",
-  },
-  teamMiniAvatarText: { fontSize: 12, fontWeight: "800" },
+  modalOptionActive: { backgroundColor: '#EFF6FF' },
+  modalDot:         { width: 10, height: 10, borderRadius: 5 },
+  modalOptionText:  { fontSize: 15, color: C.textHigh, fontWeight: '600', flex: 1 },
 });

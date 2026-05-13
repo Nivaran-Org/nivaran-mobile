@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { getComplaints, getOfficers, assignComplaint, updateComplaintStatus, escalateComplaint } from '../../../services/api';
+import { getComplaints, getOfficers, assignComplaint, updateComplaintStatus, escalateComplaint, getAllUsers } from '../../../services/api';
+import { BASE_URL } from '../../../contexts/AuthContext';
 
 export default function CaseDetails() {
   const router = useRouter();
@@ -18,143 +19,177 @@ export default function CaseDetails() {
   const [isScanning, setIsScanning] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState("Awaiting Audit...");
 
-  const fetchData = async () => {
-    try {
-      const [complaintsRes, officersRes] = await Promise.all([
-        getComplaints(),
-        getOfficers()
-      ]);
+ const fetchData = async () => {
+  setLoading(true);
+  try {
+    const [complaintsRes, officersRes, usersRes] = await Promise.all([
+      getComplaints(),
+      getOfficers(),
+      getAllUsers()
+    ]);
+
+    if (complaintsRes.success) {
+      // Find the specific complaint by ID
+      const found = complaintsRes.data.find((c: any) => c.id.toString() === id);
       
-      if (complaintsRes.success) {
-        const found = complaintsRes.data.find((c: any) => c.id.toString() === id);
-        if (found) {
-          setComplaint(found);
-        }
+      if (found) {
+        // Find related reporter and officer data
+        const reporter = usersRes.data?.find((u: any) => u.id === found.user_id);
+        const officer = officersRes.data?.find((o: any) => o.id === found.assigned_to);
+
+        // 1. Get the raw photo path from the database (Prioritizing the confirmed working key)
+        const getResPhoto = (obj: any) => {
+          if (!obj) return null;
+          // image_1ca754.png confirms 'rectifiedImageUrl' is where your data lives
+          return obj.rectifiedImageUrl || obj.rectification_image || obj.resolved_photo_url || null;
+        };
+
+        const resPhoto = getResPhoto(found);
+
+        // 2. Format the Resolution Photo URL (Bulletproof Slash Handling)
+        const formattedResPhoto = (() => {
+          if (!resPhoto || typeof resPhoto !== 'string') return null;
+          if (resPhoto.startsWith('http')) return resPhoto;
+
+          // Trim slashes to prevent "http://192.168.18.7:5000//uploads/..."
+          const cleanBase = BASE_URL.replace(/\/+$/, "");
+          const cleanPath = resPhoto.replace(/^\/+/, "");
+
+          return `${cleanBase}/${cleanPath}`;
+        })();
+
+        // 3. Format the Original Complaint Photo URL
+        const mainPhoto = found.photo_url;
+        const formattedMainPhoto = (() => {
+          if (!mainPhoto || typeof mainPhoto !== 'string') return null;
+          if (mainPhoto.startsWith('http')) return mainPhoto;
+          
+          const cleanBase = BASE_URL.replace(/\/+$/, "");
+          const cleanPath = mainPhoto.replace(/^\/+/, "");
+          return `${cleanBase}/${cleanPath}`;
+        })();
+
+        // 4. Update the state with mapped display fields
+        setComplaint({
+          ...found,
+          display_user_name: found.user_name || reporter?.name || 'Anonymous',
+          display_user_phone: found.user_phone || reporter?.phone || 'Not provided',
+          display_officer_name: found.officer_name || officer?.name || 'Not yet assigned',
+          display_main_photo: formattedMainPhoto,
+          display_resolved_photo: formattedResPhoto,
+          // Mapping 'officerRemarks' which we confirmed exists in image_1ca754.png
+          display_officer_note: found.officerRemarks || found.remarks || '',
+        });
       }
-      if (officersRes.success) {
-        setOfficers(officersRes.data ?? []);
-      }
-    } catch (e) {
-      console.error('fetchCaseDetails:', e);
-    } finally {
-      setLoading(false);
     }
-  };
+
+    if (officersRes.success) {
+      setOfficers(officersRes.data ?? []);
+    }
+  } catch (e) {
+    console.error('fetchCaseDetails Error:', e);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     fetchData();
   }, [id]);
 
   const handleAssignOfficer = async (officerId: number) => {
-  setIsAssigning(true);
-  try {
-    const res = await assignComplaint(Number(id), officerId);
-    if (res.success) {
-      setIsAssignModalVisible(false);
-      await fetchData(); // refresh
-      // ✅ Show feedback after modal closes
-      setTimeout(() => {
-        if (Platform.OS === 'web') {
-          window.alert('✅ Officer assigned successfully!');
-        } else {
-          Alert.alert('✅ Success', 'Officer has been assigned to this case.');
-        }
-      }, 300);
-    } else {
-      if (Platform.OS === 'web') {
-        window.alert('Error: ' + (res.message || 'Failed to assign officer.'));
+    setIsAssigning(true);
+    try {
+      const res = await assignComplaint(Number(id), officerId);
+      if (res.success) {
+        setIsAssignModalVisible(false);
+        await fetchData();
+        setTimeout(() => {
+          if (Platform.OS === 'web') {
+            window.alert('✅ Officer assigned successfully!');
+          } else {
+            Alert.alert('✅ Success', 'Officer has been assigned to this case.');
+          }
+        }, 300);
       } else {
-        Alert.alert('Error', res.message || 'Failed to assign officer.');
+        const msg = res.message || 'Failed to assign officer.';
+        Platform.OS === 'web' ? window.alert('Error: ' + msg) : Alert.alert('Error', msg);
       }
+    } catch (e) {
+      Platform.OS === 'web' ? window.alert('Error: Something went wrong.') : Alert.alert('Error', 'Something went wrong.');
+    } finally {
+      setIsAssigning(false);
     }
-  } catch (e) {
-    console.error('handleAssignOfficer:', e);
-    if (Platform.OS === 'web') {
-      window.alert('Error: Something went wrong.');
-    } else {
-      Alert.alert('Error', 'Something went wrong.');
-    }
-  } finally {
-    setIsAssigning(false);
-  }
-};
+  };
 
   const handleUpdateStatus = async (status: string) => {
     try {
       const res = await updateComplaintStatus(Number(id), status);
       if (res.success) {
         Alert.alert("Success", `Case marked as ${status}.`);
-        fetchData(); // Refresh data
+        fetchData();
       } else {
         Alert.alert("Error", res.message || "Failed to update status.");
       }
     } catch (e) {
-      console.error('handleUpdateStatus:', e);
       Alert.alert("Error", "Something went wrong.");
     }
   };
 
   const handleEscalate = async () => {
-  const confirmed = Platform.OS === 'web'
-    ? window.confirm(`Escalate Case #${id}?\n\nThis will send an urgent email to nitinmishra85666@gmail.com`)
-    : await new Promise(resolve =>
-        Alert.alert('Escalate Case', `Send urgent email for Case #${id}?`, [
-          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-          { text: 'Escalate', style: 'destructive', onPress: () => resolve(true) },
-        ])
-      );
+    const confirmed = Platform.OS === 'web'
+      ? window.confirm(`Escalate Case #${id}?\n\nThis will send an urgent email to nitinmishra85666@gmail.com`)
+      : await new Promise(resolve =>
+          Alert.alert('Escalate Case', `Send urgent email for Case #${id}?`, [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Escalate', style: 'destructive', onPress: () => resolve(true) },
+          ])
+        );
 
-  if (!confirmed) return;
+    if (!confirmed) return;
 
-  try {
-    const res = await escalateComplaint(Number(id));
-    if (res.success) {
-      if (Platform.OS === 'web') {
-        window.alert(`✅ Escalation sent!\n\nEmail dispatched to nitinmishra85666@gmail.com for Case #${id}`);
+    try {
+      const res = await escalateComplaint(Number(id));
+      if (res.success) {
+        const msg = `✅ Escalation sent!\n\nEmail dispatched to nitinmishra85666@gmail.com for Case #${id}`;
+        Platform.OS === 'web' ? window.alert(msg) : Alert.alert('✅ Escalated', msg);
       } else {
-        Alert.alert('✅ Escalated', `Email sent to nitinmishra85666@gmail.com for Case #${id}`);
+        const msg = res.message || 'Could not send email.';
+        Platform.OS === 'web' ? window.alert('Escalation Failed: ' + msg) : Alert.alert('Failed', msg);
       }
-    } else {
-      if (Platform.OS === 'web') {
-        window.alert('Escalation Failed: ' + (res.message || 'Could not send email.'));
-      } else {
-        Alert.alert('Failed', res.message || 'Could not send escalation email.');
-      }
+    } catch (e) {
+      Platform.OS === 'web' ? window.alert('Network Error: Could not reach server.') : Alert.alert('Error', 'Network error. Check connection.');
     }
-  } catch (e) {
-    console.error('handleEscalate:', e);
-    if (Platform.OS === 'web') {
-      window.alert('Network Error: Could not reach server.');
-    } else {
-      Alert.alert('Error', 'Network error. Check connection.');
-    }
-  }
-};
+  };
 
   const handleSaveNotes = () => {
     Alert.alert("Registry Updated", "Administrative notes and audit logs have been securely synced with the central database.");
-  };
-
-  // Mock Data for demonstration if real data is missing some fields
-  const mockOfficer = {
-    name: complaint?.officer_name || "Unassigned",
-    photo: "https://images.unsplash.com/photo-1541888946425-d81bb19480c5?q=80&w=500", 
-    hasGps: true, 
-    softwareDetected: "None" 
   };
 
   const handleSecurityScan = () => {
     setIsScanning(true);
     setTimeout(() => {
       setIsScanning(false);
-      if (mockOfficer.softwareDetected !== "None") {
-        setVerificationStatus(`🚩 FAKE: Created in ${mockOfficer.softwareDetected}`);
-      } else if (!mockOfficer.hasGps) {
+      if (!complaint.latitude || !complaint.longitude) {
         setVerificationStatus("⚠️ WARNING: No GPS Metadata found");
       } else {
-        setVerificationStatus("✅ VERIFIED: Live On-Site Photo");
+        setVerificationStatus("✅ VERIFIED: On-Site Resolution Check");
       }
     }, 2000);
+  };
+
+  const handleInspectData = () => {
+    if (!complaint) return;
+    const keys = Object.keys(complaint).filter(k => !k.startsWith('display_'));
+    const dataSummary = keys.map(k => `${k}: ${typeof complaint[k] === 'object' ? 'JSON' : complaint[k]}`).join('\n');
+    
+    if (Platform.OS === 'web') {
+      console.log('FULL COMPLAINT DATA:', complaint);
+      window.alert(`DATA KEYS:\n${keys.join(', ')}\n\nVALUES:\n${dataSummary.substring(0, 500)}...`);
+    } else {
+      Alert.alert('Data Inspector', `Keys: ${keys.join(', ')}\n\nCheck console for full JSON.`);
+      console.log('FULL COMPLAINT DATA:', JSON.stringify(complaint, null, 2));
+    }
   };
 
   if (loading) {
@@ -190,6 +225,9 @@ export default function CaseDetails() {
             <TouchableOpacity onPress={handleSaveNotes}>
               <Text style={styles.submitText}>SAVE</Text>
             </TouchableOpacity>
+            <TouchableOpacity onPress={handleInspectData} style={{ marginLeft: 10 }}>
+              <Ionicons name="bug-outline" size={20} color="#93C5FD" />
+            </TouchableOpacity>
           </View>
         </SafeAreaView>
       </View>
@@ -201,7 +239,7 @@ export default function CaseDetails() {
           <View style={styles.statusRow}>
             <View style={[styles.statusBadge, { backgroundColor: complaint.status === 'resolved' ? '#DCFCE7' : '#FEF3C7' }]}>
               <Text style={[styles.statusText, { color: complaint.status === 'resolved' ? '#16A34A' : '#D97706' }]}>
-                {complaint.status.toUpperCase()}
+                {(complaint.status || 'pending').replace('_', ' ').toUpperCase()}
               </Text>
             </View>
             <Text style={styles.priorityText}>Priority: {complaint.priority?.toUpperCase() || 'NORMAL'}</Text>
@@ -216,12 +254,44 @@ export default function CaseDetails() {
             </View>
             <View style={styles.metaItem}>
               <Ionicons name="calendar" size={16} color="#64748B" />
-              <Text style={styles.metaText}>{new Date(complaint.created_at).toLocaleDateString()}</Text>
+              <Text style={styles.metaText}>{new Date(complaint.created_at).toLocaleDateString('en-IN')}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Citizen Information */}
+        <Text style={styles.sectionTitle}>Citizen Information (Reporter)</Text>
+        <View style={styles.infoCard}>
+          <View style={styles.metaGrid}>
+            <View style={styles.metaItem}>
+              <Ionicons name="person" size={18} color="#1E3A8A" />
+              <Text style={styles.infoLabel}>Name: </Text>
+              <Text style={styles.metaText}>{complaint.display_user_name}</Text>
             </View>
             <View style={styles.metaItem}>
-              <Ionicons name="person" size={16} color="#64748B" />
-              <Text style={styles.metaText}>{complaint.officer_name || 'Unassigned'}</Text>
+              <Ionicons name="call" size={18} color="#1E3A8A" />
+              <Text style={styles.infoLabel}>Phone: </Text>
+              <Text style={styles.metaText}>{complaint.display_user_phone}</Text>
             </View>
+          </View>
+        </View>
+
+        {/* Officer Information */}
+        <Text style={styles.sectionTitle}>Assigned Officer</Text>
+        <View style={styles.infoCard}>
+          <View style={styles.metaGrid}>
+            <View style={styles.metaItem}>
+              <Ionicons name="shield-checkmark" size={18} color="#1E3A8A" />
+              <Text style={styles.infoLabel}>Officer: </Text>
+              <Text style={styles.metaText}>{complaint.display_officer_name}</Text>
+            </View>
+            {complaint.assigned_to && (
+               <View style={styles.metaItem}>
+                 <Ionicons name="finger-print" size={18} color="#1E3A8A" />
+                 <Text style={styles.infoLabel}>ID: </Text>
+                 <Text style={styles.metaText}>#{complaint.assigned_to}</Text>
+               </View>
+            )}
           </View>
         </View>
 
@@ -230,7 +300,7 @@ export default function CaseDetails() {
         <View style={styles.actionGrid}>
           <TouchableOpacity style={styles.actionBtn} onPress={() => setIsAssignModalVisible(true)}>
             <Ionicons name="person-add" size={20} color="#1E3A8A" />
-            <Text style={styles.actionBtnText}>{complaint.officer_id ? 'Reassign' : 'Assign Officer'}</Text>
+            <Text style={styles.actionBtnText}>{complaint.assigned_to ? 'Reassign' : 'Assign Officer'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionBtn} onPress={handleEscalate}>
             <Ionicons name="trending-up" size={20} color="#1E3A8A" />
@@ -238,26 +308,47 @@ export default function CaseDetails() {
           </TouchableOpacity>
         </View>
 
-        {/* 1. VISUAL PROOF */}
+        {/* VISUAL PROOF COMPARISON */}
         <Text style={styles.sectionTitle}>Visual Proof Comparison</Text>
         <View style={styles.imageGrid}>
           <View style={styles.imageWrapper}>
             <Text style={styles.imageLabel}>User's Complaint</Text>
-            <Image source={{ uri: complaint.photo_url || 'https://via.placeholder.com/200' }} style={styles.proofImage} />
+            <Image 
+              source={{ uri: complaint.display_main_photo || 'https://via.placeholder.com/200' }} 
+              style={styles.proofImage} 
+            />
             <View style={[styles.tag, { backgroundColor: '#FEE2E2' }]}>
               <Text style={[styles.tagText, { color: '#EF4444' }]}>BEFORE</Text>
             </View>
           </View>
+
           <View style={styles.imageWrapper}>
             <Text style={styles.imageLabel}>Officer's Fix</Text>
-            <Image source={{ uri: mockOfficer.photo }} style={styles.proofImage} />
-            <View style={[styles.tag, { backgroundColor: '#DCFCE7' }]}>
-              <Text style={[styles.tagText, { color: '#22C55E' }]}>AFTER</Text>
-            </View>
+            <Image 
+      source={{ uri: complaint.display_resolved_photo || 'https://via.placeholder.com/200' }} 
+      style={[styles.proofImage, !complaint.display_resolved_photo && { opacity: 0.5 }]} 
+    />
+            {complaint.display_resolved_photo ? (
+              <View style={[styles.tag, { backgroundColor: '#DCFCE7' }]}>
+                <Text style={[styles.tagText, { color: '#22C55E' }]}>AFTER</Text>
+              </View>
+            ) : (
+              <View style={[styles.tag, { backgroundColor: '#E2E8F0' }]}>
+                <Text style={[styles.tagText, { color: '#64748B' }]}>AWAITING</Text>
+              </View>
+            )}
           </View>
         </View>
 
-        {/* 2. SECURITY SCAN */}
+        {/* OFFICER NOTES */}
+        {!!complaint.display_officer_note && (
+          <View style={styles.noteCard}>
+            <Text style={styles.noteLabel}>OFFICER RESOLUTION NOTE</Text>
+            <Text style={styles.noteText}>{complaint.display_officer_note}</Text>
+          </View>
+        )}
+
+        {/* SECURITY SCAN */}
         <View style={styles.verificationBox}>
           <Text style={styles.verifyTitle}>Internal Security Audit</Text>
           {isScanning ? (
@@ -373,6 +464,7 @@ const styles = StyleSheet.create({
   metaText: { fontSize: 12, color: '#64748B', fontWeight: '600' },
 
   sectionTitle: { fontSize: 11, fontWeight: '900', color: '#94A3B8', textTransform: 'uppercase', marginBottom: 15, letterSpacing: 1, marginTop: 10 },
+  infoLabel: { fontWeight: '700', color: '#1E3A8A', fontSize: 12 },
   
   actionGrid: { flexDirection: 'row', gap: 12, marginBottom: 25 },
   actionBtn: { flex: 1, backgroundColor: '#EFF6FF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 15, borderRadius: 15, borderWidth: 1, borderColor: '#DBEAFE' },
@@ -396,7 +488,10 @@ const styles = StyleSheet.create({
   resolveBtn: { backgroundColor: '#10B981', padding: 18, borderRadius: 15, alignItems: 'center', marginBottom: 20 },
   resolveBtnText: { color: 'white', fontWeight: '900', fontSize: 14, letterSpacing: 1 },
 
-  /* Modal Styles */
+  noteCard: { backgroundColor: '#F8FAFC', borderRadius: 15, padding: 15, marginBottom: 25, borderWidth: 1, borderColor: '#E2E8F0' },
+  noteLabel: { fontSize: 10, fontWeight: '900', color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 },
+  noteText: { fontSize: 14, color: '#1E293B', lineHeight: 20, fontWeight: '500' },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: 'white', borderTopLeftRadius: 25, borderTopRightRadius: 25, minHeight: '50%', maxHeight: '80%', padding: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },

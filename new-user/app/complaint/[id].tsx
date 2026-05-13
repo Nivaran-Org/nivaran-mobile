@@ -9,6 +9,7 @@ import {
   AlertTriangle, CheckCircle, Clock, XCircle, User,
 } from 'lucide-react-native';
 import { getComplaints } from '../../services/api';
+import { BASE_URL } from '../../contexts/AuthContext';
 
 type Complaint = {
   id: number;
@@ -21,6 +22,12 @@ type Complaint = {
   ai_confidence: number;
   ai_status: string;
   assigned_to: number | null;
+  rectification_image?: string | null;
+  rectificationImage?: string | null;
+  rectified_image?: string | null;
+  rectifiedImageUrl?: string | null;
+  resolved_photo_url?: string | null;
+  rectification_image_url?: string | null;
   status: 'pending' | 'in_progress' | 'resolved' | 'rejected';
   priority: 'low' | 'medium' | 'high';
   created_at: string;
@@ -136,6 +143,44 @@ export default function ComplaintDetail() {
             <Text style={s.photoPlaceholderText}>📷  No Photo Attached</Text>
           </View>
         )}
+
+        {/* ── Resolution Photo ── */}
+        {(() => {
+          const getResPhoto = (obj: any) => {
+            if (!obj) return null;
+            const candidates = [
+              obj.rectification_image, obj.rectificationImage, obj.rectified_image, 
+              obj.rectifiedImage, obj.rectifiedImageUrl, obj.rectified_image_url, 
+              obj.rectified_photo_url, obj.resolved_photo_url, obj.resolved_photo, 
+              obj.resolution_photo, obj.rectification_photo, obj.proof_url,
+              obj.rectification_image_url
+            ];
+            for (const cand of candidates) {
+              if (typeof cand === 'string') return cand;
+              if (cand && typeof cand === 'object' && cand.url) return cand.url;
+              if (cand && typeof cand === 'object' && cand.uri) return cand.uri;
+            }
+            if (Array.isArray(obj.rectification_images) && obj.rectification_images[0]) {
+              const first = obj.rectification_images[0];
+              return typeof first === 'string' ? first : (first?.url || first?.uri);
+            }
+            if (obj.resolution) return getResPhoto(obj.resolution);
+            return null;
+          };
+
+          const resPhoto = getResPhoto(complaint);
+          if (!resPhoto || typeof resPhoto !== 'string') return null;
+          const uri = resPhoto.startsWith('http') ? resPhoto : `${BASE_URL}${resPhoto.startsWith('/') ? '' : '/'}${resPhoto}`;
+          return (
+            <View style={s.card}>
+              <View style={s.cardHeader}>
+                <CheckCircle size={16} color="#15803d" />
+                <Text style={s.cardTitle}>Resolution Proof</Text>
+              </View>
+              <Image source={{ uri }} style={s.photo} resizeMode="cover" />
+            </View>
+          );
+        })()}
 
         {/* ── Title + description ── */}
         <View style={s.card}>

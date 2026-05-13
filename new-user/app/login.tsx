@@ -96,7 +96,7 @@ const handleLogin = async () => {
       if (data.user.role === 'admin') {
         router.replace('/(admin)/dashboard');
       } else if (data.user.role === 'officer') {
-        router.replace('/(officer)/home');
+        router.replace('/(officer)');
       } else {
         router.replace('/(tabs)/home');
       }

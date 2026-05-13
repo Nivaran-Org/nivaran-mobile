@@ -1,11 +1,11 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Platform, ActivityIndicator, RefreshControl,
+  SafeAreaView, Platform, ActivityIndicator, RefreshControl, Image,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useAuth } from '../../contexts/AuthContext';
-import { getOfficers, getComplaints } from '../../services/api';
+import { useAuth, BASE_URL } from '../../contexts/AuthContext';
+import { getOfficers, getComplaints, getAllUsers } from '../../services/api';
 
 import {
   LayoutDashboard, AlertCircle, Clock, CheckCircle,
@@ -17,28 +17,77 @@ export default function AdminDashboard() {
   const router = useRouter();
   const [complaints, setComplaints] = useState<any[]>([]);
   const [officers, setOfficers] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
-  // Explicitly set loading to true when starting
   setLoading(true); 
   try {
-    const [cRes, oRes] = await Promise.all([getComplaints(), getOfficers()]);
+    const [cRes, oRes, uRes] = await Promise.all([
+      getComplaints(), 
+      getOfficers(),
+      getAllUsers()
+    ]);
     
-    // DEBUG: Check what the API is actually sending back to the Dashboard
-    console.log("Dashboard Complaint Data:", cRes.data?.length);
+    if (oRes.success) setOfficers(oRes.data ?? []);
+    if (uRes.success) setAllUsers(uRes.data ?? []);
 
     if (cRes.success) {
-      // Use the spread operator to ensure a new array reference is created
+      const rawData = Array.isArray(cRes.data) ? cRes.data : [];
+      
+      // LINK DATA: Map IDs to Names for display
+      const linkedData = rawData.map((c: any) => {
+        // Find Reporter Name
+        const reporter = uRes.data?.find((u: any) => u.id === c.user_id);
+        // Find Officer Name
+        const officer = oRes.data?.find((o: any) => o.id === c.assigned_to);
+        
+        const getResPhoto = (obj: any) => {
+          if (!obj) return null;
+          const candidates = [
+            obj.rectification_image, obj.rectificationImage, obj.rectified_image, 
+            obj.rectifiedImage, obj.rectifiedImageUrl, obj.rectified_image_url, 
+            obj.rectified_photo_url, obj.resolved_photo_url, obj.resolved_photo, 
+            obj.resolution_photo, obj.rectification_photo, obj.proof_url,
+            obj.rectification_image_url
+          ];
+          for (const cand of candidates) {
+            if (typeof cand === 'string') return cand;
+            if (cand && typeof cand === 'object' && cand.url) return cand.url;
+            if (cand && typeof cand === 'object' && cand.uri) return cand.uri;
+          }
+          if (Array.isArray(obj.rectification_images) && obj.rectification_images[0]) {
+            const first = obj.rectification_images[0];
+            return typeof first === 'string' ? first : (first?.url || first?.uri);
+          }
+          if (obj.resolution) return getResPhoto(obj.resolution);
+          return null;
+        };
 
-      const complaintData = Array.isArray(cRes.data) ? [...cRes.data] : [];
-      console.log("RAW FIRST COMPLAINT:", JSON.stringify(complaintData[0], null, 2));
-      setComplaints(complaintData);
-    }
-    
-    if (oRes.success) {
-      setOfficers(oRes.data ?? []);
+        const resPhoto = getResPhoto(c);
+        const formattedResPhoto = resPhoto 
+          ? (typeof resPhoto === 'string' ? (resPhoto.startsWith('http') ? resPhoto : `${BASE_URL}${resPhoto.startsWith('/') ? '' : '/'}${resPhoto}`) : null)
+          : null;
+
+        const mainPhoto = c.photo_url;
+        const formattedMainPhoto = mainPhoto
+          ? (mainPhoto.startsWith('http') ? mainPhoto : `${BASE_URL}${mainPhoto.startsWith('/') ? '' : '/'}${mainPhoto}`)
+          : 'https://via.placeholder.com/100';
+
+        return {
+          ...c,
+          display_user_name: c.user_name || c.user?.name || reporter?.name || 'Citizen',
+          display_officer_name: c.officer_name || officer?.name || 'Unassigned',
+          display_resolved_photo: formattedResPhoto,
+          display_main_photo: formattedMainPhoto,
+          display_officer_note: c.officerRemarks || c.remarks || c.officer_note || c.officerNote || '',
+          // Normalize status for counting
+          norm_status: (c.status || 'pending').toLowerCase().replace('-', '_')
+        };
+      });
+
+      setComplaints(linkedData);
     }
   } catch (e) {
     console.error("Dashboard error:", e);
@@ -46,16 +95,11 @@ export default function AdminDashboard() {
     setLoading(false);
     setRefreshing(false);
   }
-}, []); // Keep dependencies empty so the function reference is stable
+}, []);
 
  useFocusEffect(
   useCallback(() => {
-    // Force a fresh start to ensure the UI knows it needs to update
     fetchData();
-    
-    return () => {
-      // Optional: stop any pending tasks if the user leaves the screen
-    };
   }, [fetchData])
 );
 
@@ -64,20 +108,15 @@ export default function AdminDashboard() {
     fetchData();
   };
 
- 
-  // --- UPDATE YOUR STATS OBJECT ---
 const stats = {
   total: complaints.length,
-  // Match 'pending' OR 'auto-routed' (or whatever status your AI sets)
   pending: complaints.filter(c => 
-    ['pending', 'auto-routed', 'ai unavailable'].includes(c.status?.toLowerCase())
+    ['pending', 'auto-routed', 'ai unavailable'].includes(c.norm_status)
   ).length,
   
-  inProgress: complaints.filter(c => c.status?.toLowerCase() === 'in_progress').length,
-  resolved: complaints.filter(c => c.status?.toLowerCase() === 'resolved').length,
+  inProgress: complaints.filter(c => c.norm_status === 'in_progress').length,
+  resolved: complaints.filter(c => c.norm_status === 'resolved').length,
   
-  // FIXED: Logic for Unassigned
-  // A case is unassigned if it has no department OR the AI failed to route it
   unassigned: complaints.filter(c => 
     !c.department || 
     c.department === 'Unassigned' || 
@@ -85,11 +124,10 @@ const stats = {
   ).length,
 
   resolutionRate: complaints.length > 0
-    ? Math.round((complaints.filter(c => c.status?.toLowerCase() === 'resolved').length / complaints.length) * 100)
+    ? Math.round((complaints.filter(c => c.norm_status === 'resolved').length / complaints.length) * 100)
     : 0,
 };
 
-  // Group by department (handles long names from AI)
   const byDept: Record<string, number> = {};
   complaints.forEach(c => {
     const dept = c.department || 'Unassigned';
@@ -207,18 +245,27 @@ const stats = {
               style={[styles.recentRow, i < recent.length - 1 && styles.recentBorder]}
               onPress={() => router.push(`/(admin)/screens/case-details?id=${c.id}`)}
             >
-              <View style={[styles.recentDot, {
-                backgroundColor: {
-                  pending: '#F59E0B',
-                  in_progress: '#3B82F6',
-                  resolved: '#10B981',
-                  rejected: '#EF4444',
-                }[c.status?.toLowerCase()] || '#94A3B8'
-              }]} />
+              <Image 
+                source={{ uri: c.display_resolved_photo || c.display_main_photo }} 
+                style={styles.recentThumb} 
+              />
               <View style={{ flex: 1 }}>
-                <Text style={styles.recentTitle} numberOfLines={1}>{c.title}</Text>
+                <View style={styles.titleRow}>
+                  <View style={[styles.statusDot, {
+                    backgroundColor: {
+                      pending: '#F59E0B',
+                      in_progress: '#3B82F6',
+                      resolved: '#10B981',
+                      rejected: '#EF4444',
+                    }[c.norm_status] || '#94A3B8'
+                  }]} />
+                  <Text style={styles.recentTitle} numberOfLines={1}>{c.title}</Text>
+                </View>
                 <Text style={styles.recentMeta} numberOfLines={1}>
-                    {c.department || 'Processing...'} • {new Date(c.created_at).toLocaleDateString()}
+                    By {c.display_user_name} • {c.department || 'Processing...'}
+                </Text>
+                <Text style={styles.recentStaff} numberOfLines={1}>
+                    Assignee: {c.display_officer_name}
                 </Text>
               </View>
               <ChevronRight size={16} color="#CBD5E1" />
@@ -301,8 +348,11 @@ const styles = StyleSheet.create({
   deptCount: { fontSize: 12, fontWeight: '800', color: '#1E293B', width: 30, textAlign: 'right' },
   recentRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
   recentBorder: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  recentDot: { width: 10, height: 10, borderRadius: 5 },
-  recentTitle: { fontSize: 14, fontWeight: '700', color: '#1E293B' },
-  recentMeta: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
+  recentThumb: { width: 50, height: 50, borderRadius: 10, backgroundColor: '#F1F5F9' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  recentTitle: { fontSize: 14, fontWeight: '700', color: '#1E293B', flex: 1 },
+  recentMeta: { fontSize: 11, color: '#64748B', marginBottom: 2 },
+  recentStaff: { fontSize: 10, color: '#94A3B8', fontWeight: '600' },
   emptyText: { textAlign: 'center', color: '#94A3B8', padding: 20 },
 });
