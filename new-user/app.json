@@ -9,17 +9,28 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yourcompany.nivaran"
     },
     "android": {
-      
-      "package": "com.yourcompany.nivaran"
-    },
-    "web": {
-    },
+  "package": "com.nitintheguy.nivaranmobile",
+  "adaptiveIcon": {
+    "foregroundImage": "./assets/images/android-icon-foreground.png",
+    "backgroundImage": "./assets/images/android-icon-background.png",
+    "backgroundColor": "#ffffff"
+  },
+  "permissions": [
+    "android.permission.CAMERA",
+    "android.permission.RECORD_AUDIO",
+    "android.permission.ACCESS_COARSE_LOCATION",
+    "android.permission.ACCESS_FINE_LOCATION"
+  ]
+},
+    "web": {},
     "plugins": [
       "expo-router",
       [
@@ -35,6 +46,12 @@
         }
       ]
     ],
-    "scheme": "nivaran"
+    "scheme": "nivaran",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "85a69da4-4f0d-4809-9ee8-7e3234e742fe"
+      }
+    }
   }
 }
