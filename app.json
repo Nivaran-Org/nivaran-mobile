@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "433ed6be-89fd-426f-92d2-720f8d9144e6"
+      }
+    },
+    "android": {
+      "package": "com.nitintheguy.nivaranmobile"
+    }
+  }
+}
