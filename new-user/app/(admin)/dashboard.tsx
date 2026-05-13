@@ -1,20 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Dimensions, StatusBar, Platform, RefreshControl,
-  ActivityIndicator
+  SafeAreaView, Platform, ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Shield, Bell, User, Clock, CheckCircle, AlertTriangle, FileText, ChevronRight } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
-import { getComplaints, getOfficers } from '../../services/api';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import { getComplaints, getOfficers } from '../../services/api';
+import {
+  LayoutDashboard, AlertCircle, Clock, CheckCircle,
+  Users, FileText, TrendingUp, ChevronRight, Shield,
+} from 'lucide-react-native';
 
-const { width } = Dimensions.get('window');
-
-export default function Dashboard() {
-  const router = useRouter();
+export default function AdminDashboard() {
   const { user } = useAuth();
+  const router = useRouter();
   const [complaints, setComplaints] = useState<any[]>([]);
   const [officers, setOfficers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,459 +21,310 @@ export default function Dashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [complaintsRes, officersRes] = await Promise.all([
-        getComplaints(),
-        getOfficers()
-      ]);
-      
-      if (complaintsRes.success) {
-        setComplaints(complaintsRes.data ?? []);
-      }
-      if (officersRes.success) {
-        setOfficers(officersRes.data ?? []);
-      }
+      const [cRes, oRes] = await Promise.all([getComplaints(), getOfficers()]);
+      if (cRes.success) setComplaints(cRes.data);
+      if (oRes.success) setOfficers(oRes.data ?? []);
     } catch (e) {
-      console.error('fetchDashboardData:', e);
+      console.error(e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    setLoading(true);
     fetchData();
-  }, [fetchData]);
+  }, [fetchData]));
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchData();
-  };
+  const onRefresh = () => { setRefreshing(true); fetchData(); };
 
   const stats = {
     total: complaints.length,
     pending: complaints.filter(c => c.status === 'pending').length,
     inProgress: complaints.filter(c => c.status === 'in_progress').length,
     resolved: complaints.filter(c => c.status === 'resolved').length,
-    overdue: complaints.filter(c => {
-      // Logic for overdue: pending for more than 48 hours
-      const created = new Date(c.created_at).getTime();
-      const now = new Date().getTime();
-      return c.status === 'pending' && (now - created) > (48 * 60 * 60 * 1000);
-    }).length,
+    unassigned: complaints.filter(c => !c.assigned_to).length,
+    resolutionRate: complaints.length > 0
+      ? Math.round((complaints.filter(c => c.status === 'resolved').length / complaints.length) * 100)
+      : 0,
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1E3A8A" />
-      </View>
-    );
-  }
+  // Group by department
+  const byDept: Record<string, number> = {};
+  complaints.forEach(c => {
+    const dept = c.department || 'Unassigned';
+    byDept[dept] = (byDept[dept] || 0) + 1;
+  });
+  const deptList = Object.entries(byDept).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  // Recent complaints
+  const recent = [...complaints].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  ).slice(0, 5);
+
+  if (loading) return (
+    <View style={styles.center}>
+      <ActivityIndicator size="large" color="#1E3A8A" />
+    </View>
+  );
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#1E3A8A" />
-
-      {/* Header - Rounded Bottom */}
-      <View style={styles.header}>
-        <View>
-          <View style={styles.headerTopRow}>
-            <Text style={styles.chakra}>☸</Text>
-            <Text style={styles.headerTitle}>Admin Portal</Text>
-          </View>
-          <Text style={styles.headerSubtitle}>Welcome back, {user?.name?.split(' ')[0]}</Text>
-        </View>
-        <View style={styles.headerIcons}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/(admin)/notification')}>
-            <Bell size={22} color="#fff" />
-            {stats.pending > 0 && <View style={styles.notificationBadge} />}
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/(admin)/profile')}>
-            <User size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <ScrollView 
-        showsVerticalScrollIndicator={false} 
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1E3A8A" />
-        }
+    <SafeAreaView style={styles.container}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* Quick Metrics */}
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <View>
+              <Text style={styles.headerSub}>Welcome back,</Text>
+              <Text style={styles.headerTitle}>{user?.name} 👋</Text>
+            </View>
+            <View style={styles.liveIndicator}>
+              <View style={styles.pulseDot} />
+              <Text style={styles.liveText}>LIVE</Text>
+            </View>
+          </View>
+
+          {/* Quick metrics from real data */}
+          <View style={styles.quickMetrics}>
+            <View style={styles.metric}>
+              <Text style={styles.metricVal}>{stats.resolutionRate}%</Text>
+              <Text style={styles.metricLabel}>Resolution Rate</Text>
+            </View>
+            <View style={styles.vDivider} />
+            <View style={styles.metric}>
+              <Text style={styles.metricVal}>{officers.length}</Text>
+              <Text style={styles.metricLabel}>Officers</Text>
+            </View>
+            <View style={styles.vDivider} />
+            <View style={styles.metric}>
+              <Text style={styles.metricVal}>{stats.total}</Text>
+              <Text style={styles.metricLabel}>Total Cases</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Stats Grid */}
         <View style={styles.statsGrid}>
-          <StatCard 
-            label="Total" 
-            value={stats.total} 
-            color="#1E3A8A" 
-            bg="#DBEAFE" 
-            icon={<FileText size={20} color="#1E3A8A" />} 
-            onPress={() => router.push('/(admin)/screens/active-cases')}
-          />
-          <StatCard 
-            label="Pending" 
-            value={stats.pending} 
-            color="#D97706" 
-            bg="#FEF3C7" 
-            icon={<Clock size={20} color="#D97706" />} 
+          <StatCard label="Pending" value={stats.pending} color="#F59E0B" icon={<Clock size={20} color="#F59E0B" />} />
+          <StatCard label="In Progress" value={stats.inProgress} color="#3B82F6" icon={<TrendingUp size={20} color="#3B82F6" />} />
+          <StatCard label="Resolved" value={stats.resolved} color="#10B981" icon={<CheckCircle size={20} color="#10B981" />} />
+          <StatCard label="Unassigned" value={stats.unassigned} color="#EF4444" icon={<AlertCircle size={20} color="#EF4444" />} />
+        </View>
+
+        {/* Quick Actions */}
+        <Text style={styles.sectionLabel}>Quick Actions</Text>
+        <View style={styles.actionsRow}>
+          <TouchableOpacity
+            style={styles.actionCard}
             onPress={() => router.push('/(admin)/screens/new-cases')}
-          />
-          <StatCard 
-            label="In Progress" 
-            value={stats.inProgress} 
-            color="#2563EB" 
-            bg="#DBEAFE" 
-            icon={<Shield size={20} color="#2563EB" />} 
+          >
+            <FileText size={24} color="#1E3A8A" />
+            <Text style={styles.actionText}>All Cases</Text>
+            <View style={styles.actionBadge}>
+              <Text style={styles.actionBadgeText}>{stats.total}</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionCard}
             onPress={() => router.push('/(admin)/screens/active-cases')}
-          />
-          <StatCard 
-            label="Resolved" 
-            value={stats.resolved} 
-            color="#16A34A" 
-            bg="#DCFCE7" 
-            icon={<CheckCircle size={20} color="#16A34A" />} 
+          >
+            <TrendingUp size={24} color="#3B82F6" />
+            <Text style={styles.actionText}>Active</Text>
+            <View style={[styles.actionBadge, { backgroundColor: '#DBEAFE' }]}>
+              <Text style={[styles.actionBadgeText, { color: '#3B82F6' }]}>{stats.inProgress}</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => router.push('/(admin)/screens/staff-online')}
+          >
+            <Users size={24} color="#7C3AED" />
+            <Text style={styles.actionText}>Officers</Text>
+            <View style={[styles.actionBadge, { backgroundColor: '#EDE9FE' }]}>
+              <Text style={[styles.actionBadgeText, { color: '#7C3AED' }]}>{officers.length}</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionCard}
             onPress={() => router.push('/(admin)/screens/resolved-cases')}
-          />
+          >
+            <CheckCircle size={24} color="#10B981" />
+            <Text style={styles.actionText}>Resolved</Text>
+            <View style={[styles.actionBadge, { backgroundColor: '#DCFCE7' }]}>
+              <Text style={[styles.actionBadgeText, { color: '#10B981' }]}>{stats.resolved}</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
-        {/* System Health */}
-        <View style={styles.healthCard}>
-          <View style={styles.healthHeader}>
-            <View style={styles.healthDot} />
-            <Text style={styles.healthTitle}>SYSTEM HEALTH: OPTIMAL</Text>
-          </View>
-          <View style={styles.healthMetrics}>
-            <View style={styles.healthItem}>
-              <Text style={styles.healthLabel}>API LATENCY</Text>
-              <Text style={styles.healthValue}>24ms</Text>
+        {/* Department Breakdown */}
+        {deptList.length > 0 && (
+          <>
+            <Text style={styles.sectionLabel}>Cases by Department</Text>
+            <View style={styles.card}>
+              {deptList.map(([dept, count], i) => (
+                <View key={i} style={styles.deptRow}>
+                  <View style={styles.deptRank}>
+                    <Text style={styles.deptRankText}>{i + 1}</Text>
+                  </View>
+                  <Text style={styles.deptName}>{dept}</Text>
+                  <View style={styles.deptBar}>
+                    <View style={[styles.deptBarFill, {
+                      width: `${Math.round((count / stats.total) * 100)}%`,
+                      backgroundColor: ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6'][i],
+                    }]} />
+                  </View>
+                  <Text style={styles.deptCount}>{count}</Text>
+                </View>
+              ))}
             </View>
-            <View style={styles.healthDivider} />
-            <View style={styles.healthItem}>
-              <Text style={styles.healthLabel}>OFFICERS LIVE</Text>
-              <Text style={styles.healthValue}>{officers.length}</Text>
-            </View>
-            <View style={styles.healthDivider} />
-            <View style={styles.healthItem}>
-              <Text style={styles.healthLabel}>SLA UPTIME</Text>
-              <Text style={styles.healthValue}>99.9%</Text>
-            </View>
-          </View>
-        </View>
+          </>
+        )}
 
-        {/* Case Management Hub */}
-        <Text style={styles.sectionLabel}>CASE MANAGEMENT</Text>
-        <View style={styles.hubContainer}>
-          <HubCard 
-            title="New Cases" 
-            subtitle="Immediate action required" 
-            count={stats.pending} 
-            icon="alert-circle" 
-            color="#EF4444" 
-            onPress={() => router.push('/(admin)/screens/new-cases')} 
-          />
-          <HubCard 
-            title="Active Cases" 
-            subtitle="Currently being processed" 
-            count={stats.inProgress} 
-            icon="time" 
-            color="#3B82F6" 
-            onPress={() => router.push('/(admin)/screens/active-cases')} 
-          />
-          <HubCard 
-            title="Resolved" 
-            subtitle="Archived successfully" 
-            count={stats.resolved} 
-            icon="checkmark-done-circle" 
-            color="#10B981" 
-            onPress={() => router.push('/(admin)/screens/resolved-cases')} 
-          />
-          <HubCard 
-            title="Overdue SLA" 
-            subtitle="Breached target time" 
-            count={stats.overdue} 
-            icon="warning" 
-            color="#F59E0B" 
-            onPress={() => router.push('/(admin)/screens/overdue')} 
-          />
-          <HubCard 
-            title="Field Force" 
-            subtitle="Monitor active officers" 
-            count="LIVE" 
-            icon="people" 
-            color="#6366F1" 
-            onPress={() => router.push('/(admin)/screens/staff-online')} 
-          />
+        {/* Recent Complaints */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabel}>Recent Cases</Text>
+          <TouchableOpacity onPress={() => router.push('/(admin)/screens/new-cases')}>
+            <Text style={styles.viewAll}>View All</Text>
+          </TouchableOpacity>
         </View>
-
-        {/* Recent Activity */}
-        <Text style={styles.sectionLabel}>RECENT ACTIVITY</Text>
         <View style={styles.card}>
-          {complaints.slice(0, 7).map((c, i) => (
-            <TouchableOpacity 
-              key={c.id} 
-              style={[styles.activityRow, i === complaints.slice(0, 7).length - 1 && { borderBottomWidth: 0 }]}
+          {recent.length === 0 ? (
+            <Text style={styles.emptyText}>No complaints yet</Text>
+          ) : recent.map((c, i) => (
+            <TouchableOpacity
+              key={c.id}
+              style={[styles.recentRow, i < recent.length - 1 && styles.recentBorder]}
               onPress={() => router.push(`/(admin)/screens/case-details?id=${c.id}`)}
             >
-              <View style={[styles.activityIcon, { backgroundColor: c.status === 'resolved' ? '#DCFCE7' : '#FEF3C7' }]}>
-                <Ionicons 
-                  name={c.status === 'resolved' ? 'checkmark-circle' : 'time'} 
-                  size={16} 
-                  color={c.status === 'resolved' ? '#16A34A' : '#D97706'} 
-                />
-              </View>
+              <View style={[styles.recentDot, {
+                backgroundColor: {
+                  pending: '#F59E0B',
+                  in_progress: '#3B82F6',
+                  resolved: '#10B981',
+                  rejected: '#EF4444',
+                }[c.status] || '#94A3B8'
+              }]} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.activityTitle}>{c.title}</Text>
-                <Text style={styles.activitySub}>Status changed to {c.status.replace('_', ' ')}</Text>
+                <Text style={styles.recentTitle} numberOfLines={1}>{c.title}</Text>
+                <Text style={styles.recentMeta}>{c.department} • {new Date(c.created_at).toLocaleDateString('en-IN')}</Text>
               </View>
-              <Text style={styles.activityTime}>{new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+              <ChevronRight size={16} color="#CBD5E1" />
             </TouchableOpacity>
           ))}
-          {complaints.length === 0 && (
-            <Text style={styles.emptyActivity}>No recent activity found</Text>
-          )}
         </View>
 
-        {/* Performance & Compliance */}
-        <Text style={styles.sectionLabel}>SYSTEM AUDIT</Text>
-        <View style={styles.card}>
-          <View style={styles.terminalHeader}>
-            <Ionicons name="shield-checkmark" size={20} color="#1E3A8A" />
-            <Text style={styles.terminalTitle}>Integrity Archive</Text>
-          </View>
-          <ArchiveItem title="National Grievance Report" date="May 2026" status="VERIFIED" />
-          <ArchiveItem title="Officer Conduct Audit" date="Q2 Summary" status="SIGNED" />
-          <TouchableOpacity style={styles.exportBtn}>
-            <Text style={styles.exportText}>GENERATE COMPLIANCE CERTIFICATE</Text>
-            <Ionicons name="document-text-outline" size={18} color="#fff" />
+        {/* Officers Panel */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabel}>Field Officers</Text>
+          <TouchableOpacity onPress={() => router.push('/(admin)/screens/staff-online')}>
+            <Text style={styles.viewAll}>Manage</Text>
           </TouchableOpacity>
         </View>
-
-        {/* SYSTEM FOOTER */}
-        <View style={styles.footer}>
-          <Text style={styles.version}>v4.2.0 Command Interface</Text>
-          <Text style={styles.syncStatus}>Encryption: AES-256 Active | Live Database</Text>
+        <View style={styles.card}>
+          {officers.length === 0 ? (
+            <Text style={styles.emptyText}>No officers registered</Text>
+          ) : officers.slice(0, 4).map((o, i) => (
+            <View key={o.id} style={[styles.officerRow, i < officers.length - 1 && styles.recentBorder]}>
+              <View style={styles.officerAvatar}>
+                <Text style={styles.officerInitial}>{o.name[0]?.toUpperCase()}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.officerName}>{o.name}</Text>
+                <Text style={styles.officerEmail}>{o.email}</Text>
+              </View>
+              <View style={styles.officerCaseBadge}>
+                <Text style={styles.officerCaseText}>
+                  {complaints.filter(c => c.assigned_to === o.id).length} cases
+                </Text>
+              </View>
+            </View>
+          ))}
         </View>
 
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// --- SUB-COMPONENTS ---
-
-function StatCard({ label, value, color, bg, icon, onPress }: any) {
+function StatCard({ label, value, color, icon }: any) {
   return (
-    <TouchableOpacity style={styles.statCard} onPress={onPress}>
-      <View style={[styles.statIconWrap, { backgroundColor: bg }]}>{icon}</View>
+    <View style={styles.statCard}>
+      <View style={[styles.statIcon, { backgroundColor: color + '15' }]}>{icon}</View>
       <Text style={[styles.statValue, { color }]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </TouchableOpacity>
+    </View>
   );
 }
-
-function HubCard({ title, subtitle, count, icon, color, onPress }: any) {
-  return (
-    <TouchableOpacity style={styles.hubCard} onPress={onPress}>
-      <View style={[styles.hubIconCircle, { backgroundColor: color + '15' }]}>
-        <Ionicons name={icon} size={24} color={color} />
-      </View>
-      <View style={styles.hubTextContainer}>
-        <Text style={styles.hubTitle}>{title}</Text>
-        <Text style={styles.hubSubtitle}>{subtitle}</Text>
-      </View>
-      <View style={styles.hubBadge}>
-        <Text style={[styles.hubBadgeText, { color }]}>{count}</Text>
-        <ChevronRight size={16} color="#94A3B8" />
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-const ArchiveItem = ({ title, date, status }: any) => (
-  <View style={styles.archiveRow}>
-    <View>
-      <Text style={styles.archiveMain}>{title}</Text>
-      <Text style={styles.archiveSub}>{date}</Text>
-    </View>
-    <View style={styles.statusBadge}>
-      <Text style={styles.statusBadgeText}>{status}</Text>
-    </View>
-  </View>
-);
-
-// --- STYLES ---
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F8FAFC' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC' },
-  scrollContent: { padding: 16, paddingBottom: 40 },
-
-  /* header - Rounded Bottom Corners */
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
     backgroundColor: '#1E3A8A',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 10 : 20,
-    paddingBottom: 25,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
+    padding: 20,
+    paddingTop: Platform.OS === 'web' ? 24 : 54,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    elevation: 10,
   },
-  headerTopRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  chakra: { fontSize: 24, color: '#BFDBFE' },
-  headerTitle: { fontSize: 22, fontWeight: '900', color: '#ffffff', letterSpacing: 0.5 },
-  headerSubtitle: { fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 4, fontWeight: '600' },
-  headerIcons: { flexDirection: 'row', gap: 12 },
-  iconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative'
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EF4444',
-    borderWidth: 1.5,
-    borderColor: '#1E3A8A'
-  },
-
-  /* Stats Grid */
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 10,
-    marginBottom: 20,
-  },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  headerSub: { color: '#BFDBFE', fontSize: 13, fontWeight: '600' },
+  headerTitle: { color: '#fff', fontSize: 22, fontWeight: '900' },
+  liveIndicator: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  pulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#4ADE80', marginRight: 6 },
+  liveText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  quickMetrics: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.2)', padding: 16, borderRadius: 20 },
+  metric: { flex: 1, alignItems: 'center' },
+  metricVal: { color: '#fff', fontSize: 18, fontWeight: '900' },
+  metricLabel: { color: '#93C5FD', fontSize: 10, marginTop: 3, fontWeight: '700' },
+  vDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.15)', marginHorizontal: 8 },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8 },
   statCard: {
-    width: (width - 44) / 2,
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 2,
+    width: '47%', backgroundColor: '#fff', borderRadius: 16, padding: 16, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  statIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
+  statIcon: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  statValue: { fontSize: 28, fontWeight: '800' },
+  statLabel: { fontSize: 12, color: '#64748B', fontWeight: '600', marginTop: 2 },
+  sectionLabel: { fontSize: 12, fontWeight: '900', color: '#94A3B8', marginLeft: 16, marginTop: 20, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingRight: 16 },
+  viewAll: { fontSize: 13, color: '#1E3A8A', fontWeight: '700', marginTop: 20 },
+  actionsRow: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, gap: 8 },
+  actionCard: {
+    width: '47%', backgroundColor: '#fff', borderRadius: 16, padding: 16, alignItems: 'center', gap: 8,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  statValue: { fontSize: 24, fontWeight: '900' },
-  statLabel: { fontSize: 11, color: '#64748B', fontWeight: '800', marginTop: 4, letterSpacing: 0.5 },
-
-  /* System Health */
-  healthCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 20,
-  },
-  healthHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
-  healthDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#4ADE80', marginRight: 8 },
-  healthTitle: { fontSize: 10, fontWeight: '900', color: '#94A3B8', letterSpacing: 1 },
-  healthMetrics: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  healthItem: { flex: 1, alignItems: 'center' },
-  healthLabel: { fontSize: 8, color: '#64748B', fontWeight: '900', marginBottom: 4 },
-  healthValue: { fontSize: 14, color: '#ffffff', fontWeight: '800' },
-  healthDivider: { width: 1, height: 20, backgroundColor: '#334155' },
-
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#94A3B8',
-    marginBottom: 12,
-    letterSpacing: 1,
-    marginTop: 10,
-  },
-
-  /* Hub Cards */
-  hubContainer: { gap: 12, marginBottom: 20 },
-  hubCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  hubIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  hubTextContainer: { flex: 1 },
-  hubTitle: { fontSize: 16, fontWeight: '800', color: '#1E293B' },
-  hubSubtitle: { fontSize: 11, color: '#64748B', marginTop: 2, fontWeight: '600' },
-  hubBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  hubBadgeText: { fontSize: 16, fontWeight: '900' },
-
-  /* Activity Row */
-  activityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  activityIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  activityTitle: { fontSize: 14, fontWeight: '800', color: '#1E293B' },
-  activitySub: { fontSize: 11, color: '#64748B', fontWeight: '600' },
-  activityTime: { fontSize: 10, color: '#94A3B8', fontWeight: '700' },
-  emptyActivity: { textAlign: 'center', paddingVertical: 20, color: '#94A3B8', fontWeight: '600' },
-
-  /* General Card Styles */
+  actionText: { fontSize: 13, fontWeight: '700', color: '#1E293B' },
+  actionBadge: { backgroundColor: '#F1F5F9', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10 },
+  actionBadgeText: { fontSize: 12, fontWeight: '800', color: '#1E3A8A' },
   card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginBottom: 20,
+    backgroundColor: '#fff', marginHorizontal: 16, borderRadius: 16, padding: 4,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+    marginBottom: 8,
   },
-  terminalHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 15 },
-  terminalTitle: { fontSize: 16, fontWeight: '900', color: '#1E3A8A' },
-  archiveRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  archiveMain: { fontSize: 14, fontWeight: '800', color: '#1E293B' },
-  archiveSub: { fontSize: 11, color: '#94A3B8', fontWeight: '600' },
-  statusBadge: { backgroundColor: '#DCFCE7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  statusBadgeText: { fontSize: 9, fontWeight: '900', color: '#10B981' },
-  exportBtn: { backgroundColor: '#1E3A8A', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 14, borderRadius: 14, gap: 10, marginTop: 15 },
-  exportText: { color: '#fff', fontWeight: '900', fontSize: 12 },
-
-  /* Footer */
-  footer: { alignItems: 'center', marginTop: 10, marginBottom: 20 },
-  version: { fontSize: 11, color: '#94A3B8', fontWeight: '800' },
-  syncStatus: { fontSize: 9, color: '#94A3B8', marginTop: 4, fontWeight: '700' }
+  deptRow: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 10 },
+  deptRank: { width: 24, height: 24, backgroundColor: '#EFF6FF', borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  deptRankText: { fontSize: 11, fontWeight: '900', color: '#1E3A8A' },
+  deptName: { fontSize: 13, fontWeight: '700', color: '#334155', width: 100 },
+  deptBar: { flex: 1, height: 6, backgroundColor: '#F1F5F9', borderRadius: 3, overflow: 'hidden' },
+  deptBarFill: { height: '100%', borderRadius: 3 },
+  deptCount: { fontSize: 13, fontWeight: '800', color: '#1E293B', width: 24, textAlign: 'right' },
+  recentRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
+  recentBorder: { borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  recentDot: { width: 10, height: 10, borderRadius: 5 },
+  recentTitle: { fontSize: 14, fontWeight: '700', color: '#1E293B' },
+  recentMeta: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
+  officerRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
+  officerAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1E3A8A', justifyContent: 'center', alignItems: 'center' },
+  officerInitial: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  officerName: { fontSize: 14, fontWeight: '700', color: '#1E293B' },
+  officerEmail: { fontSize: 11, color: '#94A3B8' },
+  officerCaseBadge: { backgroundColor: '#EFF6FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  officerCaseText: { fontSize: 11, fontWeight: '700', color: '#1E3A8A' },
+  emptyText: { textAlign: 'center', color: '#94A3B8', padding: 20, fontWeight: '600' },
 });

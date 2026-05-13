@@ -55,13 +55,6 @@ export const updateComplaintStatus = async (complaintId: number, status: string,
   return res.json();
 };
 
-export const escalateComplaint = async (complaintId: number) => {
-  const res = await fetch(`${BASE_URL}/api/complaints/${complaintId}/escalate`, {
-    method: 'POST',
-    headers: await getHeaders(),
-  });
-  return res.json();
-};
 
 // ── Users ────────────────────────────────────────────────
 export const getOfficers = async () => {
@@ -83,6 +76,14 @@ export const createOfficer = async (name: string, email: string, password: strin
     method: 'POST',
     headers: await getHeaders(),
     body: JSON.stringify({ name, email, password }),
+  });
+  return res.json();
+};
+
+export const escalateComplaint = async (complaintId: number) => {
+  const res = await fetch(`${BASE_URL}/api/complaints/${complaintId}/escalate`, {
+    method: 'POST',
+    headers: await getHeaders(),
   });
   return res.json();
 };

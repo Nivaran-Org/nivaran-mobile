@@ -1,54 +1,119 @@
-import React, { useState } from 'react';
-import { 
-  View, Text, StyleSheet, FlatList, TouchableOpacity, 
-  SafeAreaView, StatusBar, SegmentedControlIOS, Platform 
+import React, { useState, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  StatusBar, ActivityIndicator, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-
-// MOCK DATA: History of a specific officer
-const HISTORY_DATA = [
-  { id: '1', task: 'Broken Pipe Repair', date: '12 April, 2026', status: 'Solved', location: 'Model Town', score: '5/5' },
-  { id: '2', task: 'Illegal Hoarding', date: '10 April, 2026', status: 'Incomplete', location: 'GT Road', score: 'N/A' },
-  { id: '3', task: 'Street Light Fix', date: '08 April, 2026', status: 'Solved', location: 'Rama Mandi', score: '4/5' },
-  { id: '4', task: 'Drainage Cleaning', date: '05 April, 2026', status: 'Solved', location: 'Central Market', score: '5/5' },
-];
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { getComplaints, getOfficers } from '../../../services/api';
 
 export default function StaffHistory() {
   const router = useRouter();
+  const { id } = useLocalSearchParams();
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [officer, setOfficer] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
 
-  const filteredData = HISTORY_DATA.filter(item => 
-    filter === 'All' ? true : item.status === filter
+  const fetchData = useCallback(async () => {
+    try {
+      const [cRes, oRes] = await Promise.all([getComplaints(), getOfficers()]);
+      if (cRes.success) {
+        // Filter complaints assigned to this officer
+        const officerComplaints = cRes.data.filter(
+          (c: any) => c.assigned_to?.toString() === id?.toString()
+        );
+        setComplaints(officerComplaints);
+      }
+      if (oRes.success) {
+        const found = oRes.data?.find((o: any) => o.id?.toString() === id?.toString());
+        setOfficer(found);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useFocusEffect(useCallback(() => {
+    setLoading(true);
+    fetchData();
+  }, [fetchData]));
+
+  const filtered = complaints.filter(c => {
+    if (filter === 'All') return true;
+    if (filter === 'Resolved') return c.status === 'resolved';
+    if (filter === 'Active') return c.status === 'in_progress';
+    if (filter === 'Pending') return c.status === 'pending';
+    return true;
+  });
+
+  const stats = {
+    total: complaints.length,
+    resolved: complaints.filter(c => c.status === 'resolved').length,
+    active: complaints.filter(c => c.status === 'in_progress').length,
+    pending: complaints.filter(c => c.status === 'pending').length,
+    rate: complaints.length > 0
+      ? Math.round((complaints.filter(c => c.status === 'resolved').length / complaints.length) * 100)
+      : 0,
+  };
+
+  const statusColor: Record<string, { bg: string; text: string }> = {
+    pending:     { bg: '#FEF3C7', text: '#D97706' },
+    in_progress: { bg: '#DBEAFE', text: '#2563EB' },
+    resolved:    { bg: '#DCFCE7', text: '#16A34A' },
+    rejected:    { bg: '#FEE2E2', text: '#EF4444' },
+  };
+
+  if (loading) return (
+    <View style={styles.center}><ActivityIndicator size="large" color="#1E3A8A" /></View>
   );
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-      
-      {/* HEADER - Rounded Blue */}
+
       <View style={styles.header}>
-        <SafeAreaView edges={['top']}>
-          <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="chevron-back" size={28} color="white" />
-            </TouchableOpacity>
-            <View style={styles.titleContainer}>
-                <Text style={styles.headerTitle}>Officer Logs</Text>
-                <Text style={styles.headerSub}>Insp. Amandeep Singh</Text>
-            </View>
-            <TouchableOpacity style={styles.exportBtn}>
-              <Ionicons name="download-outline" size={20} color="white" />
-            </TouchableOpacity>
+        <View style={styles.headerContent}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={28} color="white" />
+          </TouchableOpacity>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.headerTitle}>{officer?.name || 'Officer'}</Text>
+            <Text style={styles.headerSub}>{officer?.email || 'Case History'}</Text>
           </View>
-        </SafeAreaView>
+        </View>
+
+        {/* Stats */}
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <Text style={styles.statVal}>{stats.total}</Text>
+            <Text style={styles.statLbl}>Total</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={[styles.statVal, { color: '#10B981' }]}>{stats.resolved}</Text>
+            <Text style={styles.statLbl}>Resolved</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={[styles.statVal, { color: '#3B82F6' }]}>{stats.active}</Text>
+            <Text style={styles.statLbl}>Active</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={[styles.statVal, { color: '#F59E0B' }]}>{stats.rate}%</Text>
+            <Text style={styles.statLbl}>Rate</Text>
+          </View>
+        </View>
       </View>
 
-      {/* FILTER TABS */}
+      {/* Filter tabs */}
       <View style={styles.filterBar}>
-        {['All', 'Solved', 'Incomplete'].map((tab) => (
-          <TouchableOpacity 
-            key={tab} 
+        {['All', 'Pending', 'Active', 'Resolved'].map(tab => (
+          <TouchableOpacity
+            key={tab}
             style={[styles.tab, filter === tab && styles.activeTab]}
             onPress={() => setFilter(tab)}
           >
@@ -58,34 +123,49 @@ export default function StaffHistory() {
       </View>
 
       <FlatList
-        data={filteredData}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 20 }}
-        renderItem={({ item }) => (
-          <View style={styles.historyCard}>
-            <View style={styles.cardLeft}>
-               <View style={[styles.statusIndicator, { backgroundColor: item.status === 'Solved' ? '#22C55E' : '#EF4444' }]} />
-               <View>
-                  <Text style={styles.taskTitle}>{item.task}</Text>
-                  <Text style={styles.locationText}>{item.location} • {item.date}</Text>
-               </View>
-            </View>
-
-            <View style={styles.cardRight}>
-                {item.status === 'Solved' ? (
-                    <View style={styles.scoreBadge}>
-                        <Ionicons name="star" size={10} color="#F59E0B" />
-                        <Text style={styles.scoreText}>{item.score}</Text>
-                    </View>
-                ) : (
-                    <Text style={styles.pendingText}>PENDING</Text>
-                )}
-                <TouchableOpacity onPress={() => router.push('/screens/case-details')}>
-                   <Ionicons name="eye" size={20} color="#94A3B8" />
-                </TouchableOpacity>
-            </View>
+        data={filtered}
+        keyExtractor={item => item.id.toString()}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Ionicons name="document-text-outline" size={48} color="#CBD5E1" />
+            <Text style={styles.emptyText}>No cases found</Text>
           </View>
-        )}
+        }
+        renderItem={({ item }) => {
+          const sc = statusColor[item.status] || { bg: '#F1F5F9', text: '#64748B' };
+          return (
+            <TouchableOpacity
+              style={styles.historyCard}
+              onPress={() => router.push(`/(admin)/screens/case-details?id=${item.id}`)}
+            >
+              <View style={[styles.statusBar, { backgroundColor: sc.text }]} />
+              <View style={styles.cardContent}>
+                <View style={styles.cardTop}>
+                  <Text style={styles.caseId}>#{item.id}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
+                    <Text style={[styles.statusText, { color: sc.text }]}>
+                      {item.status.replace('_', ' ').toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.taskTitle}>{item.title}</Text>
+                <View style={styles.cardMeta}>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="business-outline" size={12} color="#94A3B8" />
+                    <Text style={styles.metaText}>{item.department || 'General'}</Text>
+                  </View>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="calendar-outline" size={12} color="#94A3B8" />
+                    <Text style={styles.metaText}>{new Date(item.created_at).toLocaleDateString('en-IN')}</Text>
+                  </View>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#CBD5E1" style={{ alignSelf: 'center' }} />
+            </TouchableOpacity>
+          );
+        }}
       />
     </View>
   );
@@ -93,52 +173,47 @@ export default function StaffHistory() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
-  header: { 
-    backgroundColor: '#1E3A8A', 
-    paddingBottom: 25, 
-    borderBottomLeftRadius: 22, 
-    borderBottomRightRadius: 22,
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: {
+    backgroundColor: '#1E3A8A',
+    paddingTop: Platform.OS === 'android' ? 50 : 60,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     elevation: 10,
-    paddingTop: Platform.OS === 'android' ? 10 : 0
   },
-  headerContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginTop: 10 },
-  titleContainer: { flex: 1, marginLeft: 15 },
-  headerTitle: { color: 'white', fontSize: 18, fontWeight: '900' },
+  headerContent: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '900' },
   headerSub: { color: '#93C5FD', fontSize: 12, fontWeight: '600' },
-  exportBtn: { backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 10 },
-  
-  filterBar: { flexDirection: 'row', paddingHorizontal: 20, marginTop: 20, gap: 10 },
-  tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#E2E8F0' },
-  activeTab: { backgroundColor: '#1E3A8A' },
+  statsRow: {
+    flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 16, padding: 14,
+  },
+  statItem: { flex: 1, alignItems: 'center' },
+  statVal: { fontSize: 20, fontWeight: '900', color: '#fff' },
+  statLbl: { fontSize: 10, color: '#93C5FD', fontWeight: '600', marginTop: 2 },
+  statDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.15)' },
+  filterBar: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 8 },
+  tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E2E8F0' },
+  activeTab: { backgroundColor: '#1E3A8A', borderColor: '#1E3A8A' },
   tabText: { fontSize: 12, fontWeight: '700', color: '#64748B' },
-  activeTabText: { color: 'white' },
-
-  historyCard: { 
-    backgroundColor: 'white', 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center',
-    padding: 15, 
-    borderRadius: 18, 
-    marginBottom: 12,
-    elevation: 2 
+  activeTabText: { color: '#fff' },
+  historyCard: {
+    backgroundColor: '#fff', borderRadius: 16, marginBottom: 12,
+    flexDirection: 'row', overflow: 'hidden',
+    elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6,
   },
-  cardLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  statusIndicator: { width: 4, height: 35, borderRadius: 2 },
-  taskTitle: { fontSize: 15, fontWeight: '800', color: '#1E293B' },
-  locationText: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
-  
-  cardRight: { alignItems: 'flex-end', gap: 8 },
-  scoreBadge: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#FFFBEB', 
-    paddingHorizontal: 8, 
-    paddingVertical: 4, 
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#FEF3C7'
-  },
-  scoreText: { fontSize: 10, fontWeight: '900', color: '#D97706', marginLeft: 4 },
-  pendingText: { fontSize: 10, fontWeight: '900', color: '#EF4444' }
+  statusBar: { width: 4 },
+  cardContent: { flex: 1, padding: 14 },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  caseId: { fontSize: 11, fontWeight: '800', color: '#94A3B8' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  statusText: { fontSize: 10, fontWeight: '900' },
+  taskTitle: { fontSize: 15, fontWeight: '800', color: '#1E293B', marginBottom: 8 },
+  cardMeta: { flexDirection: 'row', gap: 12 },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  metaText: { fontSize: 11, color: '#94A3B8', fontWeight: '600' },
+  empty: { alignItems: 'center', paddingVertical: 60 },
+  emptyText: { color: '#94A3B8', fontSize: 16, fontWeight: '600', marginTop: 12 },
 });

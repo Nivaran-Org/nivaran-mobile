@@ -46,23 +46,38 @@ export default function CaseDetails() {
   }, [id]);
 
   const handleAssignOfficer = async (officerId: number) => {
-    setIsAssigning(true);
-    try {
-      const res = await assignComplaint(Number(id), officerId);
-      if (res.success) {
-        Alert.alert("Success", "Officer assigned successfully.");
-        setIsAssignModalVisible(false);
-        fetchData(); // Refresh data
+  setIsAssigning(true);
+  try {
+    const res = await assignComplaint(Number(id), officerId);
+    if (res.success) {
+      setIsAssignModalVisible(false);
+      await fetchData(); // refresh
+      // ✅ Show feedback after modal closes
+      setTimeout(() => {
+        if (Platform.OS === 'web') {
+          window.alert('✅ Officer assigned successfully!');
+        } else {
+          Alert.alert('✅ Success', 'Officer has been assigned to this case.');
+        }
+      }, 300);
+    } else {
+      if (Platform.OS === 'web') {
+        window.alert('Error: ' + (res.message || 'Failed to assign officer.'));
       } else {
-        Alert.alert("Error", res.message || "Failed to assign officer.");
+        Alert.alert('Error', res.message || 'Failed to assign officer.');
       }
-    } catch (e) {
-      console.error('handleAssignOfficer:', e);
-      Alert.alert("Error", "Something went wrong.");
-    } finally {
-      setIsAssigning(false);
     }
-  };
+  } catch (e) {
+    console.error('handleAssignOfficer:', e);
+    if (Platform.OS === 'web') {
+      window.alert('Error: Something went wrong.');
+    } else {
+      Alert.alert('Error', 'Something went wrong.');
+    }
+  } finally {
+    setIsAssigning(false);
+  }
+};
 
   const handleUpdateStatus = async (status: string) => {
     try {
@@ -80,22 +95,41 @@ export default function CaseDetails() {
   };
 
   const handleEscalate = async () => {
-    try {
-      const res = await escalateComplaint(Number(id));
-      if (res.success) {
-        Alert.alert(
-          "Escalation Sent", 
-          `Real-time escalation email has been dispatched to: nitinmishra85666@gmail.com\n\nCase #${id} is now under high-priority review.`
-        );
-        fetchData();
+  const confirmed = Platform.OS === 'web'
+    ? window.confirm(`Escalate Case #${id}?\n\nThis will send an urgent email to nitinmishra85666@gmail.com`)
+    : await new Promise(resolve =>
+        Alert.alert('Escalate Case', `Send urgent email for Case #${id}?`, [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Escalate', style: 'destructive', onPress: () => resolve(true) },
+        ])
+      );
+
+  if (!confirmed) return;
+
+  try {
+    const res = await escalateComplaint(Number(id));
+    if (res.success) {
+      if (Platform.OS === 'web') {
+        window.alert(`✅ Escalation sent!\n\nEmail dispatched to nitinmishra85666@gmail.com for Case #${id}`);
       } else {
-        Alert.alert("Escalation Failed", res.message || "Could not process escalation.");
+        Alert.alert('✅ Escalated', `Email sent to nitinmishra85666@gmail.com for Case #${id}`);
       }
-    } catch (e) {
-      console.error('handleEscalate:', e);
-      Alert.alert("Network Error", "Unable to reach the escalation server.");
+    } else {
+      if (Platform.OS === 'web') {
+        window.alert('Escalation Failed: ' + (res.message || 'Could not send email.'));
+      } else {
+        Alert.alert('Failed', res.message || 'Could not send escalation email.');
+      }
     }
-  };
+  } catch (e) {
+    console.error('handleEscalate:', e);
+    if (Platform.OS === 'web') {
+      window.alert('Network Error: Could not reach server.');
+    } else {
+      Alert.alert('Error', 'Network error. Check connection.');
+    }
+  }
+};
 
   const handleSaveNotes = () => {
     Alert.alert("Registry Updated", "Administrative notes and audit logs have been securely synced with the central database.");
