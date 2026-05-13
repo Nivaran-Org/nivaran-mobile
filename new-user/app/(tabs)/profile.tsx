@@ -1,511 +1,330 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
+  ScrollView,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
-  Switch,
-  Animated,
-  Dimensions,
-  ActivityIndicator,
   Platform,
-  Alert,
+  StatusBar,
+  SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import { useAuth } from '../../contexts/AuthContext';
-import { useTheme } from '../../contexts/ThemeContext';
-import { DemoStorage, UserProfile } from '../../services/DemoStorage';
-import { router } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import {
-  User, Mail, MapPin, Phone, Edit3, Save, Moon, Sun,
-  Bell, Globe, Shield, Info, Star, ChevronRight,
-  LogOut, Trash2, Camera, Award,
+  User,
+  Mail,
+  Shield,
+  LogOut,
+  Info,
+  FileText,
+  Clock,
+  Loader,
+  CheckCircle,
 } from 'lucide-react-native';
+import { useAuth } from '../../contexts/AuthContext';
+import { getComplaints } from '../../services/api';
 
-const { height } = Dimensions.get('window');
+interface Stats {
+  total: number;
+  pending: number;
+  inProgress: number;
+  resolved: number;
+}
 
-// ✅ Works on both web and mobile
-const confirmAction = (title: string, message: string, onConfirm: () => void) => {
-  if (Platform.OS === 'web') {
-    if ((window as any).confirm(`${title}\n\n${message}`)) onConfirm();
-  } else {
-    Alert.alert(title, message, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Confirm', style: 'destructive', onPress: onConfirm },
-    ]);
+function getRoleLabel(role: string) {
+  switch (role) {
+    case 'officer': return 'Field Officer';
+    case 'admin':   return 'Administrator';
+    default:        return 'Citizen';
   }
-};
+}
+
+function getRoleBadgeColors(role: string): { bg: string; text: string } {
+  switch (role) {
+    case 'officer': return { bg: '#dbeafe', text: '#1e40af' };
+    case 'admin':   return { bg: '#ede9fe', text: '#5b21b6' };
+    default:        return { bg: '#dcfce7', text: '#15803d' };
+  }
+}
 
 export default function ProfileScreen() {
-  const { user, signOutUser } = useAuth();
-  const { theme, isDark, toggleTheme } = useTheme();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState<Partial<UserProfile>>({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [stats, setStats] = useState({ total: 0, resolved: 0, pending: 0 });
-  const headerAnim = useRef(new Animated.Value(0)).current;
+  const { user, token, signOutUser } = useAuth();
+  const router = useRouter();
 
-  useEffect(() => {
-    loadProfile();
-    loadStats();
-    Animated.spring(headerAnim, { toValue: 1, friction: 5, useNativeDriver: true }).start();
-  }, []);
+  const [stats, setStats]       = useState<Stats>({ total: 0, pending: 0, inProgress: 0, resolved: 0 });
+  const [loading, setLoading]   = useState(true);
 
-  const loadProfile = async () => {
-    const p = await DemoStorage.getProfile();
-    setProfile(p);
-    setEditForm(p);
-    setLoading(false);
-  };
+  const fetchStats = useCallback(async () => {
+  setLoading(true);
+  try {
+    const res = await getComplaints();                  // no token arg needed
+    const list = res.success ? (res.data ?? []) : [];  // unwrap the envelope
 
-  const loadStats = async () => {
-    const complaints = await DemoStorage.getComplaints();
     setStats({
-      total: complaints.length,
-      resolved: complaints.filter(c => c.status === 'resolved').length,
-      pending: complaints.filter(c => c.status === 'pending').length,
+      total:      list.length,
+      pending:    list.filter((c: any) => c.status === 'pending').length,
+      inProgress: list.filter((c: any) => c.status === 'in_progress').length,
+      resolved:   list.filter((c: any) => c.status === 'resolved').length,
     });
-  };
-
-  const saveProfile = async () => {
-    setSaving(true);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 800));
-      const updated = await DemoStorage.updateProfile(editForm);
-      setProfile(updated);
-      setEditing(false);
-      if (Platform.OS === 'web') {
-        (window as any).alert('Profile updated successfully');
-      } else {
-        Alert.alert('✅ Saved', 'Profile updated successfully');
-      }
-    } catch {
-      if (Platform.OS === 'web') {
-        (window as any).alert('Failed to save profile');
-      } else {
-        Alert.alert('Error', 'Failed to save profile');
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const pickAvatar = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    if (!result.canceled && result.assets[0]) {
-      const updated = await DemoStorage.updateProfile({ avatarUri: result.assets[0].uri });
-      setProfile(updated);
-    }
-  };
-
-  const handleLogout = () => {
-    confirmAction(
-      'Logout',
-      'Are you sure you want to logout?',
-      async () => {
-        await signOutUser();
-        router.replace('/login');
-      }
-    );
-  };
-
-  const handleResetData = () => {
-    confirmAction(
-      'Reset All Data',
-      'This will clear all complaints, profile data, and notifications. Continue?',
-      async () => {
-        await DemoStorage.resetAllData();
-        await signOutUser();
-        router.replace('/login');
-      }
-    );
-  };
-
-  if (loading || !profile) {
-    return (
-      <View style={[styles.center, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
-    );
+  } catch (e) {
+    console.error('fetchStats:', e);
+  } finally {
+    setLoading(false);
   }
+}, []);   // no token dependency needed either
 
-  const resolvedRate = stats.total > 0 ? Math.round((stats.resolved / stats.total) * 100) : 0;
+  useFocusEffect(
+    useCallback(() => {
+      fetchStats();
+    }, [fetchStats]),
+  );
+
+  const handleLogout = useCallback(() => {
+    signOutUser();
+    router.replace('/login');
+  }, [signOutUser, router]);
+
+  const initial = (user?.displayName ?? user?.name ?? 'U').charAt(0).toUpperCase();
+  const roleLabel  = getRoleLabel(user?.role ?? 'user');
+  const badgeColor = getRoleBadgeColors(user?.role ?? 'user');
+
+  const statCards = [
+    { label: 'Total',       value: stats.total,      icon: <FileText  color="#374151" size={18} />, bg: '#f3f4f6', text: '#374151' },
+    { label: 'Pending',     value: stats.pending,    icon: <Clock     color="#b45309" size={18} />, bg: '#fef3c7', text: '#b45309' },
+    { label: 'In Progress', value: stats.inProgress, icon: <Loader    color="#1d4ed8" size={18} />, bg: '#dbeafe', text: '#1d4ed8' },
+    { label: 'Resolved',    value: stats.resolved,   icon: <CheckCircle color="#15803d" size={18} />, bg: '#dcfce7', text: '#15803d' },
+  ];
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor="#15803d" />
 
-        {/* Header */}
-        <Animated.View style={{ opacity: headerAnim, transform: [{ scale: headerAnim }] }}>
-          <View style={styles.headerGradient}>
-            <Text style={styles.headerTitle}>My Profile</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.chakra}>☸</Text>
+        <Text style={styles.headerTitle}>My Profile</Text>
+      </View>
 
-            <TouchableOpacity style={styles.avatarContainer} onPress={pickAvatar} activeOpacity={0.8}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarLetter}>
-                  {profile.name[0]?.toUpperCase() || 'C'}
-                </Text>
-              </View>
-              <View style={styles.cameraBadge}>
-                <Camera size={12} color="#fff" />
-              </View>
-            </TouchableOpacity>
-
-            <Text style={styles.profileName}>{profile.name}</Text>
-            <Text style={styles.profileEmail}>{profile.email}</Text>
-
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{stats.total}</Text>
-                <Text style={styles.statLabel}>Total</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{stats.resolved}</Text>
-                <Text style={styles.statLabel}>Resolved</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{resolvedRate}%</Text>
-                <Text style={styles.statLabel}>Success</Text>
-              </View>
-            </View>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Avatar + Name + Role */}
+        <View style={styles.avatarSection}>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarInitial}>{initial}</Text>
           </View>
-        </Animated.View>
-
-        {/* Member Badge */}
-        <View style={[styles.memberBadge, { backgroundColor: theme.surface }]}>
-          <Award size={18} color="#F59E0B" />
-          <Text style={[styles.memberBadgeText, { color: theme.text }]}>
-            Active Citizen since {new Date(profile.memberSince).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
-          </Text>
-        </View>
-
-        {/* Personal Info */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>PERSONAL INFORMATION</Text>
-            <TouchableOpacity onPress={() => editing ? saveProfile() : setEditing(true)} disabled={saving}>
-              {saving ? (
-                <ActivityIndicator size="small" color={theme.primary} />
-              ) : editing ? (
-                <View style={styles.saveButton}>
-                  <Save size={14} color="#fff" />
-                  <Text style={styles.saveButtonText}>Save</Text>
-                </View>
-              ) : (
-                <View style={styles.editButton}>
-                  <Edit3 size={14} color={theme.primary} />
-                  <Text style={[styles.editButtonText, { color: theme.primary }]}>Edit</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          <View style={[styles.infoCard, { backgroundColor: theme.surface }]}>
-            <ProfileField
-              icon={<User size={18} color={theme.primary} />}
-              label="Full Name"
-              value={editing ? editForm.name || '' : profile.name}
-              editing={editing}
-              onChangeText={(t) => setEditForm(prev => ({ ...prev, name: t }))}
-              theme={theme}
-            />
-            <View style={[styles.fieldDivider, { backgroundColor: theme.borderLight }]} />
-            <ProfileField
-              icon={<Mail size={18} color={theme.primary} />}
-              label="Email"
-              value={editing ? editForm.email || '' : profile.email}
-              editing={editing}
-              onChangeText={(t) => setEditForm(prev => ({ ...prev, email: t }))}
-              theme={theme}
-              keyboardType="email-address"
-            />
-            <View style={[styles.fieldDivider, { backgroundColor: theme.borderLight }]} />
-            <ProfileField
-              icon={<Phone size={18} color={theme.primary} />}
-              label="Phone"
-              value={profile.phone}
-              editing={false}
-              theme={theme}
-            />
-            <View style={[styles.fieldDivider, { backgroundColor: theme.borderLight }]} />
-            <ProfileField
-              icon={<MapPin size={18} color={theme.primary} />}
-              label="Address"
-              value={editing ? editForm.address || '' : profile.address}
-              editing={editing}
-              onChangeText={(t) => setEditForm(prev => ({ ...prev, address: t }))}
-              theme={theme}
-            />
-          </View>
-
-          <View style={[styles.bioCard, { backgroundColor: theme.surface }]}>
-            <Text style={[styles.bioLabel, { color: theme.textSecondary }]}>Bio</Text>
-            {editing ? (
-              <TextInput
-                style={[styles.bioInput, { color: theme.text, borderColor: theme.inputBorder }]}
-                value={editForm.bio || ''}
-                onChangeText={(t) => setEditForm(prev => ({ ...prev, bio: t }))}
-                multiline
-                numberOfLines={3}
-                placeholderTextColor={theme.textTertiary}
-              />
-            ) : (
-              <Text style={[styles.bioText, { color: theme.text }]}>{profile.bio}</Text>
-            )}
+          <Text style={styles.userName}>{user?.displayName ?? user?.name ?? 'User'}</Text>
+          <Text style={styles.userEmail}>{user?.email ?? ''}</Text>
+          <View style={[styles.roleBadge, { backgroundColor: badgeColor.bg }]}>
+            <Shield color={badgeColor.text} size={13} />
+            <Text style={[styles.roleText, { color: badgeColor.text }]}>{roleLabel}</Text>
           </View>
         </View>
 
-        {/* Settings */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary, marginBottom: 12 }]}>SETTINGS</Text>
-          <View style={[styles.settingsCard, { backgroundColor: theme.surface }]}>
-
-            <View style={styles.settingRow}>
-              <View style={styles.settingLeft}>
-                {isDark ? <Moon size={20} color="#FBBF24" /> : <Sun size={20} color="#F59E0B" />}
-                <View>
-                  <Text style={[styles.settingLabel, { color: theme.text }]}>Dark Mode</Text>
-                  <Text style={[styles.settingDesc, { color: theme.textTertiary }]}>
-                    {isDark ? 'Dark theme active' : 'Light theme active'}
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={isDark}
-                onValueChange={toggleTheme}
-                trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
-                thumbColor={isDark ? '#2563EB' : '#F3F4F6'}
-              />
-            </View>
-
-            <View style={[styles.fieldDivider, { backgroundColor: theme.borderLight }]} />
-
-            <View style={styles.settingRow}>
-              <View style={styles.settingLeft}>
-                <Bell size={20} color="#10B981" />
-                <View>
-                  <Text style={[styles.settingLabel, { color: theme.text }]}>Notifications</Text>
-                  <Text style={[styles.settingDesc, { color: theme.textTertiary }]}>Push notifications</Text>
-                </View>
-              </View>
-              <Switch
-                value={profile.notificationsEnabled}
-                onValueChange={async (v) => {
-                  const updated = await DemoStorage.updateProfile({ notificationsEnabled: v });
-                  setProfile(updated);
-                }}
-                trackColor={{ false: '#D1D5DB', true: '#86EFAC' }}
-                thumbColor={profile.notificationsEnabled ? '#10B981' : '#F3F4F6'}
-              />
-            </View>
-
-            <View style={[styles.fieldDivider, { backgroundColor: theme.borderLight }]} />
-
-            <TouchableOpacity style={styles.settingRow} activeOpacity={0.6}>
-              <View style={styles.settingLeft}>
-                <Globe size={20} color="#8B5CF6" />
-                <View>
-                  <Text style={[styles.settingLabel, { color: theme.text }]}>Language</Text>
-                  <Text style={[styles.settingDesc, { color: theme.textTertiary }]}>{profile.language}</Text>
-                </View>
-              </View>
-              <ChevronRight size={20} color={theme.textTertiary} />
-            </TouchableOpacity>
+        {/* Stats */}
+        <Text style={styles.sectionLabel}>My Complaints</Text>
+        {loading ? (
+          <View style={styles.statsLoading}>
+            <ActivityIndicator color="#16a34a" />
           </View>
+        ) : (
+          <View style={styles.statsGrid}>
+            {statCards.map((s) => (
+              <View key={s.label} style={[styles.statCard, { backgroundColor: s.bg }]}>
+                {s.icon}
+                <Text style={[styles.statValue, { color: s.text }]}>{s.value}</Text>
+                <Text style={[styles.statLabel, { color: s.text }]}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Account info */}
+        <Text style={[styles.sectionLabel, { marginTop: 24 }]}>Account Information</Text>
+        <View style={styles.card}>
+          <InfoRow icon={<User color="#16a34a" size={16} />} label="Full Name"  value={user?.name ?? '—'} />
+          <Divider />
+          <InfoRow icon={<Mail color="#16a34a" size={16} />} label="Email"     value={user?.email ?? '—'} />
+          <Divider />
+          <InfoRow icon={<Shield color="#16a34a" size={16} />} label="Role"    value={roleLabel} />
         </View>
 
         {/* About */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary, marginBottom: 12 }]}>ABOUT</Text>
-          <View style={[styles.settingsCard, { backgroundColor: theme.surface }]}>
-            <TouchableOpacity style={styles.settingRow} activeOpacity={0.6}>
-              <View style={styles.settingLeft}>
-                <Shield size={20} color="#2563EB" />
-                <Text style={[styles.settingLabel, { color: theme.text }]}>Privacy Policy</Text>
-              </View>
-              <ChevronRight size={20} color={theme.textTertiary} />
-            </TouchableOpacity>
-            <View style={[styles.fieldDivider, { backgroundColor: theme.borderLight }]} />
-            <TouchableOpacity style={styles.settingRow} activeOpacity={0.6}>
-              <View style={styles.settingLeft}>
-                <Info size={20} color="#6B7280" />
-                <Text style={[styles.settingLabel, { color: theme.text }]}>Terms of Service</Text>
-              </View>
-              <ChevronRight size={20} color={theme.textTertiary} />
-            </TouchableOpacity>
-            <View style={[styles.fieldDivider, { backgroundColor: theme.borderLight }]} />
-            <TouchableOpacity style={styles.settingRow} activeOpacity={0.6}>
-              <View style={styles.settingLeft}>
-                <Star size={20} color="#F59E0B" />
-                <Text style={[styles.settingLabel, { color: theme.text }]}>Rate App</Text>
-              </View>
-              <ChevronRight size={20} color={theme.textTertiary} />
-            </TouchableOpacity>
-            <View style={[styles.fieldDivider, { backgroundColor: theme.borderLight }]} />
-            <View style={styles.settingRow}>
-              <View style={styles.settingLeft}>
-                <Info size={20} color={theme.textTertiary} />
-                <View>
-                  <Text style={[styles.settingLabel, { color: theme.text }]}>App Version</Text>
-                  <Text style={[styles.settingDesc, { color: theme.textTertiary }]}>v1.0.0</Text>
-                </View>
-              </View>
+        <Text style={[styles.sectionLabel, { marginTop: 24 }]}>About NIVARAN</Text>
+        <View style={styles.card}>
+          <View style={styles.aboutHeader}>
+            <Text style={styles.aboutChakra}>☸</Text>
+            <View>
+              <Text style={styles.aboutAppName}>NIVARAN</Text>
+              <Text style={styles.aboutVersion}>Version 1.0.0</Text>
             </View>
+          </View>
+          <Text style={styles.aboutDesc}>
+            NIVARAN is an AI-powered civic grievance redressal system that routes citizen complaints
+            to the appropriate government department using Sentence-BERT semantic analysis. It ensures
+            faster resolution and transparent tracking for every reported issue.
+          </Text>
+          <View style={styles.ministryRow}>
+            <Info color="#6b7280" size={14} />
+            <Text style={styles.ministryText}>Ministry of Housing and Urban Affairs, Govt. of India</Text>
           </View>
         </View>
 
-        {/* Actions */}
-        <View style={[styles.section, { paddingBottom: 40 }]}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.logoutButton]}
-            onPress={handleLogout}
-            activeOpacity={0.8}
-          >
-            <LogOut size={20} color="#EF4444" />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
+        {/* Logout */}
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
+          <LogOut color="#dc2626" size={18} />
+          <Text style={styles.logoutText}>Log Out</Text>
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.actionButton, styles.resetButton]}
-            onPress={handleResetData}
-            activeOpacity={0.8}
-          >
-            <Trash2 size={18} color="#94A3B8" />
-            <Text style={styles.resetText}>Reset Demo Data</Text>
-          </TouchableOpacity>
-        </View>
-
+        <Text style={styles.footer}>
+          © 2025 NIVARAN · Grievance Redressal Platform{'\n'}Built for citizens, powered by AI
+        </Text>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
-function ProfileField({
-  icon, label, value, editing, onChangeText, theme, keyboardType,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  editing: boolean;
-  onChangeText?: (t: string) => void;
-  theme: any;
-  keyboardType?: string;
-}) {
+function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <View style={styles.fieldRow}>
-      <View style={[styles.fieldIcon, { backgroundColor: theme.primaryLight }]}>{icon}</View>
-      <View style={styles.fieldContent}>
-        <Text style={[styles.fieldLabel, { color: theme.textTertiary }]}>{label}</Text>
-        {editing && onChangeText ? (
-          <TextInput
-            style={[styles.fieldInput, { color: theme.text, borderColor: theme.inputBorder }]}
-            value={value}
-            onChangeText={onChangeText}
-            placeholderTextColor={theme.textTertiary}
-            keyboardType={keyboardType as any}
-          />
-        ) : (
-          <Text style={[styles.fieldValue, { color: theme.text }]}>{value}</Text>
-        )}
+    <View style={styles.infoRow}>
+      <View style={styles.infoIcon}>{icon}</View>
+      <View style={styles.infoText}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <Text style={styles.infoValue}>{value}</Text>
       </View>
     </View>
   );
 }
 
+function Divider() {
+  return <View style={styles.divider} />;
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  headerGradient: {
-    backgroundColor: '#2563EB',
-    paddingTop: 54,
-    paddingBottom: 24,
-    alignItems: 'center',
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-  },
-  headerTitle: { fontSize: 18, fontWeight: '600', color: 'rgba(255,255,255,0.8)', marginBottom: 16 },
-  avatarContainer: { position: 'relative', marginBottom: 12 },
-  avatar: {
-    width: 88, height: 88, borderRadius: 44,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center', alignItems: 'center',
-    borderWidth: 3, borderColor: 'rgba(255,255,255,0.4)',
-  },
-  avatarLetter: { fontSize: 36, fontWeight: '700', color: '#fff' },
-  cameraBadge: {
-    position: 'absolute', bottom: 2, right: 2,
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: '#1D4ED8',
-    justifyContent: 'center', alignItems: 'center',
-    borderWidth: 2, borderColor: '#2563EB',
-  },
-  profileName: { fontSize: 22, fontWeight: '700', color: '#fff', marginBottom: 4 },
-  profileEmail: { fontSize: 14, color: 'rgba(255,255,255,0.7)', marginBottom: 20 },
-  statsRow: {
+  safe:   { flex: 1, backgroundColor: '#f0fdf4' },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 20, paddingBottom: 48 },
+
+  /* header */
+  header: {
+    backgroundColor: '#15803d',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 16 : 16,
+    paddingBottom: 20,
     flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 16, paddingVertical: 14, paddingHorizontal: 24, width: '85%',
+    alignItems: 'center',
+    gap: 12,
   },
-  statItem: { flex: 1, alignItems: 'center' },
-  statNumber: { fontSize: 20, fontWeight: '800', color: '#fff' },
-  statLabel: { fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginTop: 2 },
-  statDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: 8 },
-  memberBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    marginHorizontal: 16, marginTop: 16, padding: 14, borderRadius: 14,
-    elevation: 1,
+  chakra:      { fontSize: 28, color: '#bbf7d0' },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#ffffff', letterSpacing: 0.3 },
+
+  /* avatar section */
+  avatarSection: { alignItems: 'center', marginTop: 8, marginBottom: 24 },
+  avatarCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#f97316',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    shadowColor: '#f97316',
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
   },
-  memberBadgeText: { fontSize: 13, fontWeight: '500' },
-  section: { paddingHorizontal: 16, marginTop: 20 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  editButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  editButtonText: { fontSize: 13, fontWeight: '600' },
-  saveButton: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#2563EB', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+  avatarInitial: { fontSize: 34, fontWeight: '900', color: '#ffffff' },
+  userName:  { fontSize: 20, fontWeight: '800', color: '#111827', marginBottom: 2 },
+  userEmail: { fontSize: 13, color: '#6b7280', marginBottom: 10 },
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
   },
-  saveButtonText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  infoCard: { borderRadius: 16, overflow: 'hidden', elevation: 1 },
-  fieldRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
-  fieldIcon: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  fieldContent: { flex: 1 },
-  fieldLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.3, marginBottom: 2 },
-  fieldValue: { fontSize: 15, fontWeight: '500' },
-  fieldInput: { fontSize: 15, fontWeight: '500', borderBottomWidth: 1, paddingVertical: 2 },
-  fieldDivider: { height: 1, marginLeft: 62 },
-  bioCard: { borderRadius: 16, padding: 16, marginTop: 12, elevation: 1 },
-  bioLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.3, marginBottom: 6 },
-  bioText: { fontSize: 14, lineHeight: 20 },
-  bioInput: {
-    fontSize: 14, borderWidth: 1, borderRadius: 8,
-    padding: 8, minHeight: 60, textAlignVertical: 'top',
+  roleText: { fontSize: 12, fontWeight: '700' },
+
+  sectionLabel: { fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 10, letterSpacing: 0.2 },
+
+  /* stats */
+  statsLoading: { height: 80, alignItems: 'center', justifyContent: 'center' },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  statCard: {
+    width: '47.5%',
+    borderRadius: 14,
+    padding: 14,
+    alignItems: 'center',
+    gap: 4,
   },
-  settingsCard: { borderRadius: 16, overflow: 'hidden', elevation: 1 },
-  settingRow: {
-    flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', padding: 16,
+  statValue: { fontSize: 26, fontWeight: '900' },
+  statLabel: { fontSize: 11, fontWeight: '600' },
+
+  /* card */
+  card: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#d1fae5',
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  settingLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  settingLabel: { fontSize: 15, fontWeight: '500' },
-  settingDesc: { fontSize: 12, marginTop: 1 },
-  actionButton: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 14, borderRadius: 14, marginBottom: 12,
+
+  /* info row */
+  infoRow:  { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 12 },
+  infoIcon: { width: 32, alignItems: 'center' },
+  infoText: { flex: 1 },
+  infoLabel: { fontSize: 11, color: '#9ca3af', fontWeight: '600', marginBottom: 2 },
+  infoValue: { fontSize: 14, color: '#111827', fontWeight: '600' },
+  divider:   { height: 1, backgroundColor: '#f0fdf4', marginLeft: 44 },
+
+  /* about */
+  aboutHeader:  { flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 16, paddingBottom: 12 },
+  aboutChakra:  { fontSize: 36, color: '#16a34a' },
+  aboutAppName: { fontSize: 18, fontWeight: '800', color: '#15803d', letterSpacing: 1 },
+  aboutVersion: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
+  aboutDesc: {
+    fontSize: 13,
+    color: '#374151',
+    lineHeight: 20,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0fdf4',
   },
-  logoutButton: { backgroundColor: '#FEF2F2', borderWidth: 1.5, borderColor: '#FECACA' },
-  logoutText: { color: '#EF4444', fontSize: 16, fontWeight: '600' },
-  resetButton: { backgroundColor: 'transparent' },
-  resetText: { color: '#94A3B8', fontSize: 14, fontWeight: '500' },
+  ministryRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 12 },
+  ministryText: { fontSize: 11, color: '#6b7280', flex: 1, lineHeight: 16 },
+
+  /* logout */
+  logoutBtn: {
+    marginTop: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#fecaca',
+    borderRadius: 14,
+    paddingVertical: 14,
+    backgroundColor: '#fff5f5',
+  },
+  logoutText: { color: '#dc2626', fontWeight: '800', fontSize: 15 },
+
+  /* footer */
+  footer: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: '#9ca3af',
+    lineHeight: 18,
+    marginTop: 20,
+  },
 });

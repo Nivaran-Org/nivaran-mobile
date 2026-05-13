@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { router } from 'expo-router';
-import { Shield, ArrowRight, Eye, EyeOff } from 'lucide-react-native';
+import { ArrowRight, Eye, EyeOff } from 'lucide-react-native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -39,16 +39,16 @@ export default function LoginScreen() {
   const { signIn, signUp, user, isLoading } = useAuth();
 
   // Animations
-  const logoAnim = useRef(new Animated.Value(0)).current;
-  const cardAnim = useRef(new Animated.Value(50)).current;
+  const logoAnim    = useRef(new Animated.Value(0)).current;
+  const cardAnim    = useRef(new Animated.Value(50)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
-  const blob1 = useRef(new Animated.Value(0)).current;
-  const blob2 = useRef(new Animated.Value(0)).current;
+  const blob1       = useRef(new Animated.Value(0)).current;
+  const blob2       = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
       Animated.spring(logoAnim, { toValue: 1, friction: 4, useNativeDriver: true }),
-      Animated.timing(cardAnim, { toValue: 0, duration: 600, delay: 200, useNativeDriver: true }),
+      Animated.timing(cardAnim,    { toValue: 0, duration: 600, delay: 200, useNativeDriver: true }),
       Animated.timing(cardOpacity, { toValue: 1, duration: 600, delay: 200, useNativeDriver: true }),
     ]).start();
 
@@ -65,7 +65,6 @@ export default function LoginScreen() {
       ])
     ).start();
   }, []);
-
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -125,61 +124,67 @@ export default function LoginScreen() {
   const blob2Translate = blob2.interpolate({ inputRange: [0, 1], outputRange: [0, -15] });
 
   return (
-    <View style={styles.container}>
-      <View style={styles.bgGradient} />
-      <View style={styles.bgGradient2} />
+    <View style={s.container}>
+      {/* Background layers */}
+      <View style={s.bgTop} />
+      <View style={s.bgMid} />
 
-      <Animated.View style={[styles.blob, styles.blob1, { transform: [{ translateY: blob1Translate }] }]} />
-      <Animated.View style={[styles.blob, styles.blob2, { transform: [{ translateY: blob2Translate }] }]} />
+      {/* Decorative blobs */}
+      <Animated.View style={[s.blob, s.blob1, { transform: [{ translateY: blob1Translate }] }]} />
+      <Animated.View style={[s.blob, s.blob2, { transform: [{ translateY: blob2Translate }] }]} />
+
+      {/* Ashoka chakra watermark */}
+      <Text style={s.chakraWatermark}>☸</Text>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
+        style={s.keyboardView}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={s.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
           {/* Logo */}
-          <Animated.View style={[styles.logoContainer, { transform: [{ scale: logoAnim }], opacity: logoAnim }]}>
-            <View style={styles.logoIcon}>
-              <Shield size={36} color="#fff" />
+          <Animated.View style={[s.logoContainer, { transform: [{ scale: logoAnim }], opacity: logoAnim }]}>
+            <View style={s.chakraCircle}>
+              <Text style={s.chakraEmoji}>☸</Text>
             </View>
-            <Text style={styles.title}>NIVARAN</Text>
-            <Text style={styles.subtitle}>AI-Powered Civic Complaint Management</Text>
+            <Text style={s.title}>NIVARAN</Text>
+            <Text style={s.taglineHindi}>सुनाइए • सुलझाइए • संतुष्टिए</Text>
+            <Text style={s.subtitle}>AI-Powered Civic Grievance Redressal</Text>
           </Animated.View>
 
           {/* Card */}
-          <Animated.View style={[styles.card, { transform: [{ translateY: cardAnim }], opacity: cardOpacity }]}>
+          <Animated.View style={[s.card, { transform: [{ translateY: cardAnim }], opacity: cardOpacity }]}>
 
             {/* Mode Toggle */}
-            <View style={styles.toggleRow}>
+            <View style={s.toggleRow}>
               <TouchableOpacity
-                style={[styles.toggleBtn, mode === 'login' && styles.toggleBtnActive]}
+                style={[s.toggleBtn, mode === 'login' && s.toggleBtnActive]}
                 onPress={() => setMode('login')}
               >
-                <Text style={[styles.toggleText, mode === 'login' && styles.toggleTextActive]}>Login</Text>
+                <Text style={[s.toggleText, mode === 'login' && s.toggleTextActive]}>Login</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.toggleBtn, mode === 'register' && styles.toggleBtnActive]}
+                style={[s.toggleBtn, mode === 'register' && s.toggleBtnActive]}
                 onPress={() => setMode('register')}
               >
-                <Text style={[styles.toggleText, mode === 'register' && styles.toggleTextActive]}>Register</Text>
+                <Text style={[s.toggleText, mode === 'register' && s.toggleTextActive]}>Register</Text>
               </TouchableOpacity>
             </View>
 
             {mode === 'login' ? (
               <>
-                <Text style={styles.cardTitle}>Welcome Back</Text>
-                <Text style={styles.cardSubtitle}>Sign in to your citizen account</Text>
+                <Text style={s.cardTitle}>Welcome Back</Text>
+                <Text style={s.cardSubtitle}>Sign in to your citizen account</Text>
 
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.label}>Email</Text>
+                <View style={s.inputWrapper}>
+                  <Text style={s.label}>Email Address</Text>
                   <TextInput
-                    style={styles.input}
+                    style={s.input}
                     placeholder="you@example.com"
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor="#9ca3af"
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -188,37 +193,37 @@ export default function LoginScreen() {
                   />
                 </View>
 
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.label}>Password</Text>
-                  <View style={styles.passwordRow}>
+                <View style={s.inputWrapper}>
+                  <Text style={s.label}>Password</Text>
+                  <View style={s.passwordRow}>
                     <TextInput
-                      style={[styles.input, { flex: 1 }]}
+                      style={[s.input, { flex: 1 }]}
                       placeholder="••••••••"
-                      placeholderTextColor="#94A3B8"
+                      placeholderTextColor="#9ca3af"
                       secureTextEntry={!showPassword}
                       value={password}
                       onChangeText={setPassword}
                     />
-                    <TouchableOpacity onPress={() => setShowPassword(p => !p)} style={styles.eyeBtn}>
+                    <TouchableOpacity onPress={() => setShowPassword(p => !p)} style={s.eyeBtn}>
                       {showPassword
-                        ? <EyeOff size={20} color="#94A3B8" />
-                        : <Eye size={20} color="#94A3B8" />
+                        ? <EyeOff size={20} color="#9ca3af" />
+                        : <Eye size={20} color="#9ca3af" />
                       }
                     </TouchableOpacity>
                   </View>
                 </View>
 
                 <TouchableOpacity
-                  style={[styles.button, loading && styles.buttonDisabled]}
+                  style={[s.button, loading && s.buttonDisabled]}
                   onPress={handleLogin}
                   disabled={loading}
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                 >
                   {loading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <View style={styles.buttonContent}>
-                      <Text style={styles.buttonText}>Login</Text>
+                    <View style={s.buttonContent}>
+                      <Text style={s.buttonText}>Login to NIVARAN</Text>
                       <ArrowRight size={20} color="#fff" />
                     </View>
                   )}
@@ -226,27 +231,27 @@ export default function LoginScreen() {
               </>
             ) : (
               <>
-                <Text style={styles.cardTitle}>Create Account</Text>
-                <Text style={styles.cardSubtitle}>Register as a citizen to file complaints</Text>
+                <Text style={s.cardTitle}>Create Account</Text>
+                <Text style={s.cardSubtitle}>Register as a citizen to file complaints</Text>
 
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.label}>Full Name</Text>
+                <View style={s.inputWrapper}>
+                  <Text style={s.label}>Full Name</Text>
                   <TextInput
-                    style={styles.input}
+                    style={s.input}
                     placeholder="Your full name"
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor="#9ca3af"
                     autoCapitalize="words"
                     value={name}
                     onChangeText={setName}
                   />
                 </View>
 
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.label}>Email</Text>
+                <View style={s.inputWrapper}>
+                  <Text style={s.label}>Email Address</Text>
                   <TextInput
-                    style={styles.input}
+                    style={s.input}
                     placeholder="you@example.com"
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor="#9ca3af"
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -255,32 +260,32 @@ export default function LoginScreen() {
                   />
                 </View>
 
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.label}>Password</Text>
-                  <View style={styles.passwordRow}>
+                <View style={s.inputWrapper}>
+                  <Text style={s.label}>Password</Text>
+                  <View style={s.passwordRow}>
                     <TextInput
-                      style={[styles.input, { flex: 1 }]}
+                      style={[s.input, { flex: 1 }]}
                       placeholder="Min. 6 characters"
-                      placeholderTextColor="#94A3B8"
+                      placeholderTextColor="#9ca3af"
                       secureTextEntry={!showRegPassword}
                       value={regPassword}
                       onChangeText={setRegPassword}
                     />
-                    <TouchableOpacity onPress={() => setShowRegPassword(p => !p)} style={styles.eyeBtn}>
+                    <TouchableOpacity onPress={() => setShowRegPassword(p => !p)} style={s.eyeBtn}>
                       {showRegPassword
-                        ? <EyeOff size={20} color="#94A3B8" />
-                        : <Eye size={20} color="#94A3B8" />
+                        ? <EyeOff size={20} color="#9ca3af" />
+                        : <Eye size={20} color="#9ca3af" />
                       }
                     </TouchableOpacity>
                   </View>
                 </View>
 
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.label}>Confirm Password</Text>
+                <View style={s.inputWrapper}>
+                  <Text style={s.label}>Confirm Password</Text>
                   <TextInput
-                    style={styles.input}
+                    style={s.input}
                     placeholder="Re-enter password"
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor="#9ca3af"
                     secureTextEntry
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
@@ -288,104 +293,90 @@ export default function LoginScreen() {
                 </View>
 
                 <TouchableOpacity
-                  style={[styles.button, loading && styles.buttonDisabled]}
+                  style={[s.button, loading && s.buttonDisabled]}
                   onPress={handleRegister}
                   disabled={loading}
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                 >
                   {loading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <View style={styles.buttonContent}>
-                      <Text style={styles.buttonText}>Create Account</Text>
+                    <View style={s.buttonContent}>
+                      <Text style={s.buttonText}>Create Account</Text>
                       <ArrowRight size={20} color="#fff" />
                     </View>
                   )}
                 </TouchableOpacity>
               </>
             )}
+
+            {/* Govt disclaimer */}
+            <Text style={s.disclaimer}>
+              Official Government Portal · Secure & Confidential
+            </Text>
           </Animated.View>
 
-          <Text style={styles.footerText}>Empowering citizens for a better tomorrow</Text>
+          <Text style={s.footerText}>
+            ☸  Ministry of Housing and Urban Affairs{'\n'}
+            Government of India
+          </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1E40AF' },
-  bgGradient: {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    height: height * 0.55, backgroundColor: '#2563EB',
-    borderBottomLeftRadius: 40, borderBottomRightRadius: 40,
-  },
-  bgGradient2: {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    height: height * 0.35, backgroundColor: '#1D4ED8',
-    borderBottomLeftRadius: 60, borderBottomRightRadius: 60,
-  },
-  blob: { position: 'absolute', borderRadius: 100, opacity: 0.15 },
-  blob1: { width: 200, height: 200, backgroundColor: '#60A5FA', top: -50, right: -60 },
-  blob2: { width: 150, height: 150, backgroundColor: '#93C5FD', top: height * 0.3, left: -40 },
-  keyboardView: { flex: 1 },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-  },
-  logoContainer: { alignItems: 'center', marginBottom: 32 },
-  logoIcon: {
-    width: 72, height: 72, borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center', alignItems: 'center', marginBottom: 16,
-  },
-  title: { fontSize: 36, fontWeight: '800', color: '#FFFFFF', letterSpacing: 3 },
-  subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 8, textAlign: 'center' },
-  card: {
-    width: '100%', maxWidth: 400, backgroundColor: '#FFFFFF',
-    borderRadius: 24, padding: 28,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.15, shadowRadius: 24, elevation: 12,
-  },
-  toggleRow: {
-    flexDirection: 'row', backgroundColor: '#F1F5F9',
-    borderRadius: 12, padding: 4, marginBottom: 24,
-  },
-  toggleBtn: {
-    flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center',
-  },
-  toggleBtnActive: { backgroundColor: '#2563EB' },
-  toggleText: { fontSize: 14, fontWeight: '600', color: '#64748B' },
+const s = StyleSheet.create({
+  container:        { flex: 1, backgroundColor: '#14532d' },
+
+  // Background
+  bgTop:            { position: 'absolute', top: 0, left: 0, right: 0, height: height * 0.55, backgroundColor: '#15803d', borderBottomLeftRadius: 40, borderBottomRightRadius: 40 },
+  bgMid:            { position: 'absolute', top: 0, left: 0, right: 0, height: height * 0.35, backgroundColor: '#166534', borderBottomLeftRadius: 60, borderBottomRightRadius: 60 },
+
+  // Blobs
+  blob:             { position: 'absolute', borderRadius: 100, opacity: 0.12 },
+  blob1:            { width: 220, height: 220, backgroundColor: '#4ade80', top: -60, right: -70 },
+  blob2:            { width: 160, height: 160, backgroundColor: '#86efac', top: height * 0.28, left: -50 },
+
+  // Watermark
+  chakraWatermark:  { position: 'absolute', top: height * 0.05, left: 20, fontSize: 120, color: 'rgba(255,255,255,0.04)', zIndex: 0 },
+
+  keyboardView:     { flex: 1 },
+  scrollContent:    { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 40 },
+
+  // Logo
+  logoContainer:    { alignItems: 'center', marginBottom: 28 },
+  chakraCircle:     { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 14, borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)' },
+  chakraEmoji:      { fontSize: 38, color: '#fbbf24' },
+  title:            { fontSize: 38, fontWeight: '900', color: '#ffffff', letterSpacing: 4, marginBottom: 4 },
+  taglineHindi:     { fontSize: 12, color: '#bbf7d0', fontWeight: '600', letterSpacing: 0.5, marginBottom: 6 },
+  subtitle:         { fontSize: 13, color: 'rgba(255,255,255,0.65)', textAlign: 'center' },
+
+  // Card
+  card:             { width: '100%', maxWidth: 400, backgroundColor: '#ffffff', borderRadius: 24, padding: 28, shadowColor: '#000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12 },
+
+  // Toggle
+  toggleRow:        { flexDirection: 'row', backgroundColor: '#f0fdf4', borderRadius: 12, padding: 4, marginBottom: 24 },
+  toggleBtn:        { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
+  toggleBtnActive:  { backgroundColor: '#16a34a' },
+  toggleText:       { fontSize: 14, fontWeight: '700', color: '#6b7280' },
   toggleTextActive: { color: '#fff' },
-  cardTitle: { fontSize: 22, fontWeight: '700', color: '#0F172A', marginBottom: 6 },
-  cardSubtitle: { fontSize: 14, color: '#64748B', marginBottom: 20, lineHeight: 20 },
-  inputWrapper: { marginBottom: 14 },
-  label: {
-    fontSize: 12, fontWeight: '600', color: '#475569',
-    marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5,
-  },
-  input: {
-    backgroundColor: '#F8FAFC', borderRadius: 12,
-    borderWidth: 1.5, borderColor: '#E2E8F0',
-    paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 15, color: '#0F172A',
-  },
-  passwordRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  eyeBtn: { padding: 10 },
-  button: {
-    backgroundColor: '#2563EB', borderRadius: 14, paddingVertical: 15,
-    alignItems: 'center', marginTop: 8,
-    shadowColor: '#2563EB', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3, shadowRadius: 12, elevation: 6,
-  },
-  buttonDisabled: { opacity: 0.7 },
-  buttonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  footerText: {
-    marginTop: 32, fontSize: 13,
-    color: 'rgba(255,255,255,0.5)', textAlign: 'center',
-  },
+
+  cardTitle:        { fontSize: 22, fontWeight: '800', color: '#111827', marginBottom: 4 },
+  cardSubtitle:     { fontSize: 13, color: '#6b7280', marginBottom: 20, lineHeight: 20 },
+
+  inputWrapper:     { marginBottom: 14 },
+  label:            { fontSize: 11, fontWeight: '800', color: '#374151', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 },
+  input:            { backgroundColor: '#f9fafb', borderRadius: 12, borderWidth: 1.5, borderColor: '#e5e7eb', paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, color: '#111827' },
+  passwordRow:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  eyeBtn:           { padding: 10 },
+
+  button:           { backgroundColor: '#16a34a', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8, shadowColor: '#16a34a', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 6 },
+  buttonDisabled:   { opacity: 0.7 },
+  buttonContent:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  buttonText:       { color: '#fff', fontSize: 16, fontWeight: '800' },
+
+  disclaimer:       { textAlign: 'center', fontSize: 11, color: '#9ca3af', marginTop: 20, fontWeight: '600' },
+
+  footerText:       { marginTop: 28, fontSize: 12, color: 'rgba(255,255,255,0.5)', textAlign: 'center', lineHeight: 20 },
 });

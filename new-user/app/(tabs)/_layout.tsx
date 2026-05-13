@@ -1,74 +1,44 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Tabs, Redirect, router } from 'expo-router';
-import { Home, FileText, User, Bell } from 'lucide-react-native';
-import { useAuth } from '../../contexts/AuthContext';
-import { useTheme } from '../../contexts/ThemeContext';
-import { DemoStorage } from '../../services/DemoStorage';
+import { Tabs } from 'expo-router';
+import { Home, PlusCircle, Bell, User } from 'lucide-react-native';
 
 export default function TabLayout() {
-  const { user, isLoading } = useAuth();
-  const { theme } = useTheme();
-  const [unreadCount, setUnreadCount] = useState(0);
-
-  useEffect(() => {
-    loadUnread();
-    const interval = setInterval(loadUnread, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // ✅ Reactively redirect when user logs out
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.replace('/login');
-    }
-  }, [user, isLoading]);
-
-  const loadUnread = async () => {
-    const notifications = await DemoStorage.getNotifications();
-    setUnreadCount(notifications.filter(n => !n.read).length);
-  };
-
-  if (isLoading) return null;
-  if (!user) return null; // useEffect above handles redirect
-
   return (
     <Tabs
+      initialRouteName="home"
       screenOptions={{
-        tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: theme.textTertiary,
+        headerShown: false,
+        tabBarActiveTintColor: '#16a34a',
+        tabBarInactiveTintColor: '#6b7280',
         tabBarStyle: {
-          backgroundColor: theme.tabBar,
-          borderTopColor: theme.tabBarBorder,
-          borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
+          backgroundColor: '#ffffff',
+          borderTopColor: '#d1fae5',
+          borderTopWidth: 1.5,
+          paddingBottom: 6,
           paddingTop: 6,
-          elevation: 10,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.08,
-          shadowRadius: 8,
+          height: 62,
         },
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
         },
-        headerShown: false,
       }}
     >
       <Tabs.Screen
         name="home"
         options={{
-          title: 'Dashboard',
-          tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => (
+            <Home color={color} size={size} />
+          ),
         }}
       />
       <Tabs.Screen
         name="report"
         options={{
           title: 'Report',
-          tabBarIcon: ({ color, size }) => <FileText size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <PlusCircle color={color} size={size} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -76,16 +46,7 @@ export default function TabLayout() {
         options={{
           title: 'Alerts',
           tabBarIcon: ({ color, size }) => (
-            <View>
-              <Bell size={size} color={color} />
-              {unreadCount > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </View>
+            <Bell color={color} size={size} />
           ),
         }}
       />
@@ -93,31 +54,15 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <User color={color} size={size} />
+          ),
         }}
       />
+      {/* Hidden tabs */}
+      <Tabs.Screen name="complaints" options={{ href: null }} />
+      <Tabs.Screen name="map" options={{ href: null }} />
+      <Tabs.Screen name="officers" options={{ href: null }} />
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  badge: {
-    position: 'absolute',
-    top: -4,
-    right: -8,
-    backgroundColor: '#EF4444',
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-});

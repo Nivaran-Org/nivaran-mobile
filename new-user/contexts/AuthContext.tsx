@@ -1,20 +1,24 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
-const BASE_URL = 'http://192.168.18.7:5000';
-
+const BASE_URL = Platform.OS === 'web'
+  ? 'http://localhost:5000'
+  : 'http://192.168.18.7:5000';
+  
 type User = {
   id: number;
   name: string;
   email: string;
-  role: string;
+  role: 'user' | 'officer' | 'admin';
   displayName: string;
 };
 
 type AuthContextType = {
   user: User | null;
+  token: string | null;
   isLoading: boolean;
-  signIn: (email: string, password: string) => Promise<boolean>;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
   signUp: (name: string, email: string, password: string) => Promise<{ success: boolean; message: string }>;
   signOutUser: () => Promise<void>;
 };
@@ -23,6 +27,7 @@ const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -31,9 +36,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const restoreSession = async () => {
     try {
-      const stored = await AsyncStorage.getItem('user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
+      const storedToken = await AsyncStorage.getItem('token');
+      const storedUser = await AsyncStorage.getItem('user');
+      if (storedToken && storedUser) {
+        const parsed = JSON.parse(storedUser);
+        setToken(storedToken);
         setUser({ ...parsed, displayName: parsed.name });
       }
     } catch (e) {
@@ -43,7 +50,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const signIn = async (email: string, password: string): Promise<boolean> => {
+  const signIn = async (email: string, password: string) => {
     try {
       const res = await fetch(`${BASE_URL}/api/auth/login`, {
         method: 'POST',
@@ -56,21 +63,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const userData = { ...data.user, displayName: data.user.name };
         await AsyncStorage.setItem('token', data.token);
         await AsyncStorage.setItem('user', JSON.stringify(userData));
+        setToken(data.token);
         setUser(userData);
-        return true;
+        return { success: true };
       }
-      return false;
+      return { success: false, message: data.message || 'Login failed' };
     } catch (err) {
-      console.error('Login error:', err);
-      return false;
+      return { success: false, message: 'Connection failed. Check your network.' };
     }
   };
 
-  const signUp = async (
-    name: string,
-    email: string,
-    password: string
-  ): Promise<{ success: boolean; message: string }> => {
+  const signUp = async (name: string, email: string, password: string) => {
     try {
       const res = await fetch(`${BASE_URL}/api/auth/register`, {
         method: 'POST',
@@ -83,7 +86,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         message: data.message || (data.success ? 'Registered successfully' : 'Registration failed'),
       };
     } catch (err) {
-      console.error('Register error:', err);
       return { success: false, message: 'Connection failed. Check your network.' };
     }
   };
@@ -91,14 +93,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signOutUser = async () => {
     await AsyncStorage.removeItem('token');
     await AsyncStorage.removeItem('user');
+    setToken(null);
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, signIn, signUp, signOutUser }}>
+    <AuthContext.Provider value={{ user, token, isLoading, signIn, signUp, signOutUser }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
 export const useAuth = () => useContext(AuthContext);
+export { BASE_URL };
