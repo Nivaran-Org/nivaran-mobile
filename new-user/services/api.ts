@@ -11,19 +11,13 @@ const getHeaders = async (isFormData = false) => {
 };
 
 // ── Complaints ──────────────────────────────────────────
-export const getComplaints = async () => {
-  const res = await fetch(`${BASE_URL}/api/complaints`, {
-    headers: await getHeaders(),
-  });
-  return res.json();
-};
-
 export const getOfficerComplaints = async () => {
   const res = await fetch(`${BASE_URL}/api/complaints/officer`, {
     headers: await getHeaders(),
   });
   return res.json();
 };
+
 
 export const fileComplaint = async (formData: FormData) => {
   const res = await fetch(`${BASE_URL}/api/complaints`, {
@@ -83,6 +77,12 @@ export const createOfficer = async (name: string, email: string, password: strin
 export const escalateComplaint = async (complaintId: number) => {
   const res = await fetch(`${BASE_URL}/api/complaints/${complaintId}/escalate`, {
     method: 'POST',
+    headers: await getHeaders(),
+  });
+  return res.json();
+};
+export const getComplaints = async () => {
+  const res = await fetch(`${BASE_URL}/api/complaints`, {
     headers: await getHeaders(),
   });
   return res.json();
