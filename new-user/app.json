@@ -12,13 +12,14 @@
     "assetBundlePatterns": [
       "**/*"
     ],
-    
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yourcompany.nivaran"
     },
     "android": {
   "package": "com.nitintheguy.nivaranmobile",
+  "namespace": "com.nitintheguy.nivaranmobile",
   "minSdkVersion": 23, 
   "permissions": [
     "android.permission.CAMERA",
