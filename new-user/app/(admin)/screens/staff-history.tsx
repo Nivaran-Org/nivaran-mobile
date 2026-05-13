@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   View, Text, StyleSheet, FlatList, TouchableOpacity, 
-  SafeAreaView, StatusBar, SegmentedControlIOS 
+  SafeAreaView, StatusBar, SegmentedControlIOS, Platform 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -26,9 +26,9 @@ export default function StaffHistory() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* METALLIC HEADER */}
+      {/* HEADER - Rounded Blue */}
       <View style={styles.header}>
-        <SafeAreaView>
+        <SafeAreaView edges={['top']}>
           <View style={styles.headerContent}>
             <TouchableOpacity onPress={() => router.back()}>
               <Ionicons name="chevron-back" size={28} color="white" />
@@ -95,11 +95,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   header: { 
     backgroundColor: '#1E3A8A', 
-    paddingBottom: 20, 
-    borderBottomLeftRadius: 25, 
-    borderBottomRightRadius: 25,
-    borderBottomWidth: 4,
-    borderColor: '#3B82F6'
+    paddingBottom: 25, 
+    borderBottomLeftRadius: 22, 
+    borderBottomRightRadius: 22,
+    elevation: 10,
+    paddingTop: Platform.OS === 'android' ? 10 : 0
   },
   headerContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginTop: 10 },
   titleContainer: { flex: 1, marginLeft: 15 },

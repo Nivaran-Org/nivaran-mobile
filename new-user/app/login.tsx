@@ -202,7 +202,7 @@ const handleLogin = async () => {
             {mode === 'login' ? (
               <>
                 <Text style={s.cardTitle}>Welcome Back</Text>
-                <Text style={s.cardSubtitle}>Sign in to your citizen account</Text>
+                <Text style={s.title}>Login</Text>
 
                 <View style={s.inputWrapper}>
                   <Text style={s.label}>Email Address</Text>

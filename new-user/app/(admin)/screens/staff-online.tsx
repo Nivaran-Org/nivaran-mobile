@@ -1,55 +1,56 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, Text, StyleSheet, FlatList, TouchableOpacity, 
-  SafeAreaView, StatusBar, Image 
+  SafeAreaView, StatusBar, Image, Platform, ActivityIndicator, RefreshControl
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-
-// 1. MOCK DATA: Detailed Officer Profiles
-const STAFF_DATA = [
-  {
-    id: '1',
-    name: 'Insp. Amandeep Singh',
-    role: 'Zonal Lead - Jalandhar West',
-    status: 'Active',
-    currentTask: '#GRV-1024: Road Repair',
-    solved: 142,
-    incomplete: 3,
-    image: 'https://randomuser.me/api/portraits/men/32.jpg'
-  },
-  {
-    id: '2',
-    name: 'Officer Priya Sharma',
-    role: 'Field Officer - Sanitation',
-    status: 'On Break',
-    currentTask: 'None',
-    solved: 89,
-    incomplete: 1,
-    image: 'https://randomuser.me/api/portraits/women/44.jpg'
-  },
-  {
-    id: '3',
-    name: 'Sgt. Vikram Rathore',
-    role: 'Safety & Traffic Monitor',
-    status: 'Active',
-    currentTask: '#GRV-1088: Signal Failure',
-    solved: 210,
-    incomplete: 12,
-    image: 'https://randomuser.me/api/portraits/men/54.jpg'
-  }
-];
+import { getOfficers } from '../../../services/api';
 
 export default function StaffOnline() {
   const router = useRouter();
+  const [officers, setOfficers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await getOfficers();
+      if (res.success) {
+        setOfficers(res.data ?? []);
+      }
+    } catch (e) {
+      console.error('fetchStaffOnline:', e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchData();
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#1E3A8A" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* METALLIC HEADER */}
+      {/* HEADER - Rounded Blue */}
       <View style={styles.header}>
-        <SafeAreaView>
+        <SafeAreaView edges={['top']}>
           <View style={styles.headerContent}>
             <TouchableOpacity onPress={() => router.back()}>
               <Ionicons name="chevron-back" size={28} color="white" />
@@ -64,56 +65,66 @@ export default function StaffOnline() {
       </View>
 
       <FlatList
-        data={STAFF_DATA}
-        keyExtractor={(item) => item.id}
+        data={officers}
+        keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={{ padding: 20 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1E3A8A" />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="people-outline" size={48} color="#CBD5E1" />
+            <Text style={styles.emptyText}>No officers online</Text>
+          </View>
+        }
         renderItem={({ item }) => (
           <View style={styles.staffCard}>
             {/* TOP ROW: Profile & Status */}
             <View style={styles.topRow}>
-              <Image source={{ uri: item.image }} style={styles.avatar} />
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarInitial}>{(item.name || 'O').charAt(0).toUpperCase()}</Text>
+              </View>
               <View style={styles.infoCol}>
                 <Text style={styles.staffName}>{item.name}</Text>
-                <Text style={styles.staffRole}>{item.role}</Text>
+                <Text style={styles.staffRole}>{item.email}</Text>
               </View>
               <View style={[
                 styles.statusBadge, 
-                { backgroundColor: item.status === 'Active' ? '#DCFCE7' : '#F1F5F9' }
+                { backgroundColor: '#DCFCE7' }
               ]}>
                 <Text style={[
                   styles.statusLabel, 
-                  { color: item.status === 'Active' ? '#16A34A' : '#64748B' }
+                  { color: '#16A34A' }
                 ]}>
-                  {item.status}
+                  ACTIVE
                 </Text>
               </View>
             </View>
 
-            {/* MIDDLE ROW: Current Assignment */}
+            {/* MIDDLE ROW: Info */}
             <View style={styles.assignmentBox}>
-              <Text style={styles.boxLabel}>Current Assignment</Text>
-              <Text style={styles.taskText}>{item.currentTask}</Text>
+              <Text style={styles.boxLabel}>ID REFERENCE</Text>
+              <Text style={styles.taskText}>OFF-00{item.id}</Text>
             </View>
 
             {/* BOTTOM ROW: Performance Stats */}
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>{item.solved}</Text>
+                <Text style={styles.statValue}>-</Text>
                 <Text style={styles.statLabel}>Solved</Text>
               </View>
               
               <View style={styles.statDivider} />
               
               <View style={styles.statItem}>
-                <Text style={[styles.statValue, { color: '#EF4444' }]}>{item.incomplete}</Text>
+                <Text style={[styles.statValue, { color: '#EF4444' }]}>-</Text>
                 <Text style={styles.statLabel}>Incomplete</Text>
               </View>
               
-              {/* UPDATED: Navigates to Staff History Screen */}
               <TouchableOpacity 
                 style={styles.viewBtn}
-                onPress={() => router.push('/screens/staff-history')}
+                onPress={() => router.push(`/(admin)/screens/staff-history?id=${item.id}`)}
               >
                 <Text style={styles.viewBtnText}>History</Text>
                 <Ionicons name="chevron-forward" size={14} color="white" />
@@ -130,12 +141,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   header: { 
     backgroundColor: '#1E3A8A', 
-    paddingBottom: 20, 
-    borderBottomLeftRadius: 25, 
-    borderBottomRightRadius: 25,
-    borderBottomWidth: 4,
-    borderColor: '#3B82F6',
-    elevation: 8
+    paddingBottom: 25, 
+    borderBottomLeftRadius: 22, 
+    borderBottomRightRadius: 22,
+    elevation: 10,
+    paddingTop: Platform.OS === 'android' ? 10 : 0
   },
   headerContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginTop: 10 },
   headerTitle: { flex: 1, color: 'white', fontSize: 20, fontWeight: '900', marginLeft: 10 },
@@ -161,7 +171,15 @@ const styles = StyleSheet.create({
     shadowRadius: 10 
   },
   topRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
-  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#E2E8F0' },
+  avatarCircle: { 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
+    backgroundColor: '#1E3A8A', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  avatarInitial: { color: 'white', fontWeight: '900', fontSize: 20 },
   infoCol: { flex: 1, marginLeft: 12 },
   staffName: { fontSize: 16, fontWeight: '800', color: '#1E293B' },
   staffRole: { fontSize: 12, color: '#94A3B8', fontWeight: '600' },
@@ -188,5 +206,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderColor: '#3B82F6'
   },
-  viewBtnText: { color: 'white', fontSize: 12, fontWeight: '800', marginRight: 4 }
+  viewBtnText: { color: 'white', fontSize: 12, fontWeight: '800', marginRight: 4 },
+  emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 100 },
+  emptyText: { marginTop: 10, fontSize: 16, color: '#94A3B8', fontWeight: '600' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' }
 });

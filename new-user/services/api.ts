@@ -55,6 +55,14 @@ export const updateComplaintStatus = async (complaintId: number, status: string,
   return res.json();
 };
 
+export const escalateComplaint = async (complaintId: number) => {
+  const res = await fetch(`${BASE_URL}/api/complaints/${complaintId}/escalate`, {
+    method: 'POST',
+    headers: await getHeaders(),
+  });
+  return res.json();
+};
+
 // ── Users ────────────────────────────────────────────────
 export const getOfficers = async () => {
   const res = await fetch(`${BASE_URL}/api/users?role=officer`, {
