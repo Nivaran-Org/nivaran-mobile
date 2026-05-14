@@ -67,7 +67,8 @@ export default function LoginScreen() {
       ])
     ).start();
   }, []);
-const handleLogin = async () => {
+
+ const handleLogin = async () => {
   if (!email || !password) {
     Alert.alert('Error', 'Please enter both email and password');
     return;
@@ -76,7 +77,7 @@ const handleLogin = async () => {
   try {
     const success = await signIn(email.trim(), password);
     if (success) {
-      router.replace('/(tabs)/home');
+      router.replace('/');
     } else {
       Alert.alert('Login Failed', 'Invalid email or password.');
     }
