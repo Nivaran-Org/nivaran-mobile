@@ -6,9 +6,10 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "splash": {
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
+  "image": "./assets/images/splash-icon.png",
+  "resizeMode": "contain",
+  "backgroundColor": "#ffffff"
+},
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -19,9 +20,8 @@
     },
    "android": {
   "package": "com.nitintheguy.nivaranmobile",
-  "namespace": "com.nitintheguy.nivaranmobile",
   "minSdkVersion": 23,
-  "newArchEnabled": false,
+  "newArchEnabled": true,
   "permissions": [
     "android.permission.CAMERA",
     "android.permission.RECORD_AUDIO",
